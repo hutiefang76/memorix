@@ -76,25 +76,34 @@ export class WorkspaceSyncEngine {
       opencode: [],
     };
 
-    // Scan MCP configs from each agent
+    // Scan MCP configs from each agent (merge all paths, dedup by name)
     for (const [target, adapter] of this.adapters) {
       const configPath = adapter.getConfigPath(this.projectRoot);
       const globalPath = adapter.getConfigPath();
 
-      // Try project-level first, then global
-      for (const path of [configPath, globalPath]) {
+      const pathsToCheck = [configPath, globalPath];
+
+      // Antigravity has an additional config at ~/.gemini/antigravity/mcp_config.json
+      if (target === 'antigravity') {
+        pathsToCheck.push(join(homedir(), '.gemini', 'antigravity', 'mcp_config.json'));
+      }
+
+      const merged = new Map<string, MCPServerEntry>();
+      for (const path of pathsToCheck) {
         if (existsSync(path)) {
           try {
             const content = readFileSync(path, 'utf-8');
             const servers = adapter.parse(content);
-            if (servers.length > 0) {
-              mcpConfigs[target] = servers;
-              break;
+            for (const s of servers) {
+              if (!merged.has(s.name)) merged.set(s.name, s);
             }
           } catch {
             // Skip unreadable configs
           }
         }
+      }
+      if (merged.size > 0) {
+        mcpConfigs[target] = Array.from(merged.values());
       }
     }
 

@@ -6,7 +6,11 @@ import { join } from 'node:path';
  * Kiro MCP config adapter.
  * Format: JSON file at .kiro/settings/mcp.json (project-level)
  *         or ~/.kiro/settings/mcp.json (user-level)
- * Structure: { mcpServers: { [name]: { command, args, env?, disabled?, autoApprove?, timeout? } } }
+ * Structure: { mcpServers: { ... }, powers?: { mcpServers: { ... } } }
+ *
+ * Kiro stores user-added servers in `mcpServers` and power-installed
+ * servers (context7, figma, postman, supabase etc.) in `powers.mcpServers`.
+ * Both sections use the same entry format.
  *
  * Source: Kiro official MCP documentation.
  */
@@ -16,13 +20,17 @@ export class KiroMCPAdapter implements MCPConfigAdapter {
     parse(content: string): MCPServerEntry[] {
         try {
             const config = JSON.parse(content);
-            const servers = config.mcpServers ?? {};
-            return Object.entries(servers).map(([name, entry]: [string, any]) => ({
+            // Merge top-level mcpServers and powers.mcpServers (dedup by name)
+            const topLevel = config.mcpServers ?? {};
+            const powers = config.powers?.mcpServers ?? {};
+            const merged = { ...powers, ...topLevel };
+            return Object.entries(merged).map(([name, entry]: [string, any]) => ({
                 name,
                 command: entry.command ?? '',
                 args: entry.args ?? [],
                 ...(entry.env && Object.keys(entry.env).length > 0 ? { env: entry.env } : {}),
                 ...(entry.url ? { url: entry.url } : {}),
+                ...(entry.disabled === true ? { disabled: true } : {}),
             }));
         } catch {
             return [];
