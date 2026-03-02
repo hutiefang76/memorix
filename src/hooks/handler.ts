@@ -258,9 +258,14 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
   try {
     const { detectProject } = await import('../project/detector.js');
     const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+    const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
 
-    const project = await detectProject(input.cwd || process.cwd());
-    const dataDir = await getProjectDataDir(project.id);
+    const rawProject = await detectProject(input.cwd || process.cwd());
+    const dataDir = await getProjectDataDir(rawProject.id);
+    
+    // Resolve to canonical project ID (same as server.ts does)
+    initAliasRegistry(dataDir);
+    await registerAlias(rawProject);
     const allObs = await loadObservationsJson(dataDir) as Array<{
       type?: string; title?: string; narrative?: string;
       facts?: string[]; timestamp?: string;
@@ -304,7 +309,7 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
         return `${emoji} ${title}${fact}`;
       });
 
-      contextSummary = `\n\nRecent project memories (${project.name}):\n${lines.join('\n')}`;
+      contextSummary = `\n\nRecent project memories (${rawProject.name}):\n${lines.join('\n')}`;
     }
   } catch {
     // Silent fail — hooks must never break the agent
@@ -461,11 +466,18 @@ export async function runHook(): Promise<void> {
       const { storeObservation, initObservations } = await import('../memory/observations.js');
       const { detectProject } = await import('../project/detector.js');
       const { getProjectDataDir } = await import('../store/persistence.js');
+      const { initAliasRegistry, registerAlias } = await import('../project/aliases.js');
 
-      const project = await detectProject(input.cwd || process.cwd());
-      const dataDir = await getProjectDataDir(project.id);
+      const rawProject = await detectProject(input.cwd || process.cwd());
+      const dataDir = await getProjectDataDir(rawProject.id);
+      
+      // Resolve to canonical project ID (same as server.ts does)
+      initAliasRegistry(dataDir);
+      const canonicalId = await registerAlias(rawProject);
+      const projectId = canonicalId;
+      
       await initObservations(dataDir);
-      await storeObservation({ ...observation, projectId: project.id });
+      await storeObservation({ ...observation, projectId });
 
       // Feedback: tell the agent what was saved
       const emoji = TYPE_EMOJI[observation.type] ?? '📝';
