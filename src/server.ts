@@ -20,7 +20,7 @@ import { watchFile } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { KnowledgeGraphManager } from './memory/graph.js';
-import { storeObservation, initObservations, reindexObservations, migrateProjectIds } from './memory/observations.js';
+import { initObservations, storeObservation, reindexObservations, migrateProjectIds, getObservation } from './memory/observations.js';
 import { resetDb } from './store/orama-store.js';
 import { createAutoRelations } from './memory/auto-relations.js';
 import { extractEntities } from './memory/entity-extractor.js';
@@ -32,7 +32,8 @@ import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry } from '.
 import { RulesSyncer } from './rules/syncer.js';
 import { WorkspaceSyncEngine } from './workspace/engine.js';
 import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
-import { extractFacts, deduplicateMemory } from './llm/memory-manager.js';
+import { compactOnWrite, deduplicateMemory } from './llm/memory-manager.js';
+import type { ExistingMemory } from './llm/memory-manager.js';
 
 /** Timestamp of last MCP-initiated write — hot-reload skips changes within 10s */
 let lastInternalWriteMs = 0;
@@ -261,32 +262,94 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       const safeFiles = filesModified ? coerceStringArray(filesModified) : undefined;
       const safeConcepts = concepts ? coerceStringArray(concepts) : undefined;
 
-      // LLM-enhanced fact extraction (optional — enriches facts if LLM available)
-      let llmEnriched = false;
-      let enrichedTitle = title;
-      let enrichedFacts = safeFacts;
-      let enrichedType = type;
-      if (isLLMEnabled() && !topicKey) {
+      // ── Compact on Write (dual-mode: LLM or heuristic) ──────────────
+      // Search for similar existing memories BEFORE storing.
+      // If compact says UPDATE → merge into existing; NONE → skip storing.
+      // This keeps memory count low and prevents duplication (Mem0-style).
+      let compactAction = '';
+      let compactMerged = false;
+      if (!topicKey && !progress) {
         try {
-          const llmFacts = await extractFacts(`${title}\n${narrative}\n${(safeFacts ?? []).join('\n')}`);
-          if (llmFacts && llmFacts.relevance !== 'low') {
-            if (llmFacts.facts.length > 0) {
-              enrichedFacts = [...(safeFacts ?? []), ...llmFacts.facts.filter(f => !(safeFacts ?? []).includes(f))];
+          const searchResult = await compactSearch({
+            query: `${title} ${narrative.substring(0, 200)}`,
+            limit: 5,
+            projectId: project.id,
+            status: 'active',
+          });
+          const similarEntries = searchResult.entries.map(e => e);
+          if (similarEntries.length > 0) {
+            // Fetch full details for comparison
+            const similarIds = similarEntries.map(e => e.id);
+            const details = await compactDetail(similarIds);
+            const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
+              id: d.observationId,
+              title: d.title,
+              narrative: d.narrative,
+              facts: d.facts,
+              score: similarEntries[i]?.score ?? 0,
+            }));
+
+            const decision = await compactOnWrite(
+              { title, narrative, facts: safeFacts ?? [] },
+              existingMemories,
+            );
+
+            if (decision.action === 'UPDATE' && decision.targetId) {
+              // Merge into existing memory (Mem0-style UPDATE)
+              const targetObs = getObservation(decision.targetId);
+              if (targetObs) {
+                markInternalWrite();
+                await storeObservation({
+                  entityName: targetObs.entityName,
+                  type: targetObs.type,
+                  title: decision.mergedNarrative ? title : targetObs.title,
+                  narrative: decision.mergedNarrative ?? narrative,
+                  facts: decision.mergedFacts ?? safeFacts,
+                  filesModified: safeFiles,
+                  concepts: safeConcepts,
+                  projectId: project.id,
+                  topicKey: targetObs.topicKey,
+                  progress: progress as import('./types.js').ProgressInfo | undefined,
+                });
+                compactAction = `🔄 Compact UPDATE: merged into #${decision.targetId} (${decision.reason})`;
+                compactMerged = true;
+
+                // Return early — we updated existing, no new observation needed
+                return {
+                  content: [{
+                    type: 'text' as const,
+                    text: `${compactAction}\nMode: ${decision.usedLLM ? 'LLM' : 'heuristic'}`,
+                  }],
+                };
+              }
+            } else if (decision.action === 'NONE') {
+              // Memory is redundant — skip storing entirely
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: `⏭️ Compact SKIP: ${decision.reason}\nExisting memory #${decision.targetId} already covers this.\nMode: ${decision.usedLLM ? 'LLM' : 'heuristic'}`,
+                }],
+              };
+            } else if (decision.action === 'DELETE' && decision.targetId) {
+              // Old memory is outdated — resolve it, then ADD the new one
+              const { resolveObservations } = await import('./memory/observations.js');
+              await resolveObservations([decision.targetId], 'resolved');
+              compactAction = ` | Compact: resolved outdated #${decision.targetId}`;
             }
-            if (llmFacts.title && llmFacts.title.length > title.length) {
-              enrichedTitle = llmFacts.title;
+            // decision.action === 'ADD' or DELETE fallthrough → proceed to store normally
+            if (decision.enrichedFacts && decision.enrichedFacts.length > 0) {
+              // LLM extracted additional facts — merge them in
+              const currentFacts = safeFacts ?? [];
+              const newFacts = decision.enrichedFacts.filter((f: string) => !currentFacts.includes(f));
+              if (newFacts.length > 0) {
+                compactAction += ` | +${newFacts.length} LLM-extracted facts`;
+              }
             }
-            if (llmFacts.type && OBSERVATION_TYPES.includes(llmFacts.type)) {
-              enrichedType = llmFacts.type;
-            }
-            llmEnriched = true;
-          } else if (llmFacts && llmFacts.relevance === 'low') {
-            // LLM says this is not worth storing — but we still store it,
-            // just log the assessment (user explicitly called store)
           }
-        } catch { /* LLM enrichment is optional */ }
+        } catch { /* compact is best-effort */ }
       }
 
+      // ── Standard store flow ─────────────────────────────────────────
       // Ensure entity exists in knowledge graph
       await graphManager.createEntities([
         { name: entityName, entityType: 'auto', observations: [] },
@@ -304,10 +367,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       markInternalWrite();
       const { observation: obs, upserted } = await storeObservation({
         entityName,
-        type: enrichedType as ObservationType,
-        title: enrichedTitle,
+        type: type as ObservationType,
+        title,
         narrative,
-        facts: enrichedFacts,
+        facts: safeFacts,
         filesModified: safeFiles,
         concepts: safeConcepts,
         projectId: project.id,
@@ -318,53 +381,12 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
       // Add a reference to the entity's observations
       await graphManager.addObservations([
-        { entityName, contents: [`[#${obs.id}] ${enrichedTitle}`] },
+        { entityName, contents: [`[#${obs.id}] ${title}`] },
       ]);
 
       // Implicit memory: auto-create relations from entity extraction
-      const extracted = extractEntities([enrichedTitle, narrative, ...(enrichedFacts ?? [])].join(' '));
+      const extracted = extractEntities([title, narrative, ...(safeFacts ?? [])].join(' '));
       const autoRelCount = await createAutoRelations(obs, extracted, graphManager);
-
-      // LLM-enhanced dedup: find and resolve similar existing memories (async, non-blocking)
-      let dedupAction = '';
-      if (isLLMEnabled() && !upserted && !topicKey) {
-        // Fire-and-forget: search for similar memories and auto-resolve duplicates
-        (async () => {
-          try {
-            const searchResult = await compactSearch({
-              query: enrichedTitle,
-              limit: 5,
-              projectId: project.id,
-              status: 'active',
-            });
-            const similarIds = searchResult.entries
-              .filter(e => e.id !== obs.id)
-              .map(e => e.id);
-            if (similarIds.length > 0) {
-              const { compactDetail: getDetails } = await import('./compact/engine.js');
-              const details = await getDetails(similarIds);
-              const decision = await deduplicateMemory(
-                { title: enrichedTitle, narrative, facts: enrichedFacts ?? [] },
-                details.documents.map(d => ({
-                  id: d.observationId,
-                  title: d.title,
-                  narrative: d.narrative,
-                  facts: d.facts,
-                })),
-              );
-              if (decision && decision.action === 'UPDATE' && decision.targetId) {
-                const { resolveObservations } = await import('./memory/observations.js');
-                await resolveObservations([decision.targetId], 'resolved');
-              } else if (decision && decision.action === 'NONE') {
-                // New memory is redundant — mark it as resolved instead
-                const { resolveObservations } = await import('./memory/observations.js');
-                await resolveObservations([obs.id], 'resolved');
-              }
-            }
-          } catch { /* LLM dedup is best-effort */ }
-        })();
-        dedupAction = ' | LLM dedup: async';
-      }
 
       // Build enrichment summary
       const enrichmentParts: string[] = [];
@@ -375,7 +397,6 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       if (autoRelCount > 0) enrichmentParts.push(`+${autoRelCount} relations auto-created`);
       if (obs.hasCausalLanguage) enrichmentParts.push('causal language detected');
       if (upserted) enrichmentParts.push(`topic upserted (rev ${obs.revisionCount ?? 1})`);
-      if (llmEnriched) enrichmentParts.push('LLM fact extraction applied');
       const enrichment = enrichmentParts.length > 0 ? `\nAuto-enriched: ${enrichmentParts.join(', ')}` : '';
 
       const action = upserted ? '🔄 Updated' : '✅ Stored';
@@ -384,7 +405,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         content: [
           {
             type: 'text' as const,
-            text: `${action} observation #${obs.id} "${enrichedTitle}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${enrichedType} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${dedupAction}${enrichment}`,
+            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${enrichment}`,
           },
         ],
       };

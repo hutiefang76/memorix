@@ -719,16 +719,43 @@ When a task is completed, a bug is fixed, or information becomes outdated:
 
 This is critical — without resolving, old bug reports and completed tasks will keep appearing in future searches.
 
-## RULE 4: Session End — Store Summary
+## RULE 4: Session End — Store Decision Chain Summary
 
-When the conversation is ending:
+When the conversation is ending, create a **decision chain summary** (not just a checklist):
 
-1. Call \`memorix_store\` with type \`session-request\` and a \`topicKey\` like \`"session/latest-summary"\` to record:
-   - What was accomplished
-   - Current project state and blockers
-   - Pending tasks or next steps
-   - Key files modified
+1. Call \`memorix_store\` with type \`session-request\` and \`topicKey: "session/latest-summary"\`:
+
+   **Required structure:**
+   \`\`\`
+   ## Goal
+   [What we were working on — specific, not vague]
+
+   ## Key Decisions & Reasoning
+   - Chose X because Y. Rejected Z because [reason].
+   - [Every architectural/design decision with WHY]
+
+   ## What Changed
+   - [File path] — [what changed and why]
+
+   ## Current State
+   - [What works now, what's pending]
+   - [Any blockers or risks]
+
+   ## Next Steps
+   - [Concrete next actions, in priority order]
+   \`\`\`
+
+   **Critical: Include the "Key Decisions & Reasoning" section.** Without it, the next AI session will lack the context to understand WHY things were done a certain way and may suggest conflicting approaches.
+
 2. Call \`memorix_resolve\` on any memories for tasks completed in this session
+
+## RULE 5: Compact Awareness
+
+Memorix automatically compacts memories on store:
+- **With LLM API configured:** Smart dedup — extracts facts, compares with existing, merges or skips duplicates
+- **Without LLM (free mode):** Heuristic dedup — uses similarity scores to detect and merge duplicate memories
+- **You don't need to manually deduplicate.** Just store naturally and compact handles the rest.
+- If you notice excessive duplicate memories, call \`memorix_deduplicate\` for batch cleanup.
 
 ## Guidelines
 
@@ -737,6 +764,7 @@ When the conversation is ending:
 - **Include related concepts** for better searchability
 - **Always use topicKey** for recurring topics to prevent duplicates
 - **Always resolve** completed tasks and fixed bugs
+- **Always include reasoning** — "chose X because Y" is 10x more valuable than "did X"
 - Search defaults to \`status="active"\` — use \`status="all"\` to include resolved memories
 `;
 }

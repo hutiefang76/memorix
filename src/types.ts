@@ -144,6 +144,8 @@ export interface IndexEntry {
   icon: string;
   title: string;
   tokens: number;
+  /** Relevance score from search (time-decayed). Used by compact engine. */
+  score?: number;
 }
 
 /** L2 timeline context — observations around an anchor */
