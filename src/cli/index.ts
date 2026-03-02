@@ -26,64 +26,69 @@ const pkg = require('../../package.json') as { version: string };
 async function interactiveMenu(): Promise<void> {
   p.intro(`Memorix v${pkg.version}`);
 
-  const action = await p.select({
-    message: 'What would you like to do?',
-    options: [
-      { value: 'search', label: 'Search memories', hint: 'find by keyword' },
-      { value: 'list', label: 'View recent', hint: 'latest observations' },
-      { value: 'dashboard', label: 'Open Dashboard', hint: 'localhost:3210' },
-      { value: 'hooks', label: 'Install hooks', hint: 'auto-capture for IDEs' },
-      { value: 'status', label: 'Project status', hint: 'info + stats' },
-      { value: 'cleanup', label: 'Clean up', hint: 'remove old memories' },
-      { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
-      { value: 'configure', label: 'Configure', hint: 'LLM + embedding settings' },
-      { value: 'serve', label: 'Start MCP server', hint: 'for IDE integration' },
-    ],
-  });
+  // Loop until user exits or chooses a blocking action
+  while (true) {
+    const action = await p.select({
+      message: 'What would you like to do?',
+      options: [
+        { value: 'search', label: 'Search memories', hint: 'find by keyword' },
+        { value: 'list', label: 'View recent', hint: 'latest observations' },
+        { value: 'dashboard', label: 'Open Dashboard', hint: 'localhost:3210' },
+        { value: 'hooks', label: 'Install hooks', hint: 'auto-capture for IDEs' },
+        { value: 'status', label: 'Project status', hint: 'info + stats' },
+        { value: 'cleanup', label: 'Clean up', hint: 'remove old memories' },
+        { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
+        { value: 'configure', label: 'Configure', hint: 'LLM + embedding settings' },
+        { value: 'serve', label: 'Start MCP server', hint: 'for IDE integration' },
+        { value: 'exit', label: 'Exit', hint: 'quit memorix' },
+      ],
+    });
 
-  if (p.isCancel(action)) {
-    p.cancel('Goodbye!');
-    process.exit(0);
-  }
-
-  switch (action) {
-    case 'search': {
-      const query = await p.text({
-        message: 'Enter search query:',
-        placeholder: 'e.g., authentication bug fix',
-      });
-      if (p.isCancel(query) || !query) {
-        p.cancel('Search cancelled');
-        return;
-      }
-      await runSearch(query);
-      break;
+    if (p.isCancel(action) || action === 'exit') {
+      p.outro('Goodbye!');
+      process.exit(0);
     }
-    case 'list':
-      await runList();
-      break;
-    case 'dashboard':
-      await runCommand('dashboard');
-      break;
-    case 'hooks':
-      await runCommand('hooks', ['install']);
-      break;
-    case 'status':
-      await runCommand('status');
-      break;
-    case 'cleanup':
-      await runCommand('cleanup');
-      break;
-    case 'sync':
-      await runCommand('sync');
-      break;
-    case 'configure':
-      await runConfigure();
-      break;
-    case 'serve':
-      p.log.info('Starting MCP server on stdio...');
-      await runCommand('serve');
-      break;
+
+    switch (action) {
+      case 'search': {
+        const query = await p.text({
+          message: 'Enter search query:',
+          placeholder: 'e.g., authentication bug fix',
+        });
+        if (p.isCancel(query) || !query) {
+          continue; // Back to menu
+        }
+        await runSearch(query);
+        break;
+      }
+      case 'list':
+        await runList();
+        break;
+      case 'dashboard':
+        await runCommand('dashboard');
+        return; // Dashboard is blocking, exit after
+      case 'hooks':
+        await runCommand('hooks', ['install']);
+        break;
+      case 'status':
+        await runCommand('status');
+        break;
+      case 'cleanup':
+        await runCommand('cleanup');
+        break;
+      case 'sync':
+        await runCommand('sync');
+        break;
+      case 'configure':
+        await runConfigure();
+        break;
+      case 'serve':
+        p.log.info('Starting MCP server on stdio...');
+        await runCommand('serve');
+        return; // Serve is blocking, exit after
+    }
+    
+    console.log(''); // Add spacing before next menu
   }
 }
 
