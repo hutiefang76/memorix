@@ -630,16 +630,16 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
                 [{ id: older.id, title: older.title, narrative: older.narrative, facts: older.facts.join('\n') }],
               );
               if (decision && decision.action === 'UPDATE' && decision.targetId) {
-                actions.push(`🔄 #${older.id} "${older.title}" → superseded by #${newer.id} (${decision.reason})`);
+                actions.push(`🔄 #${older.id} "${older.title}" → superseded by #${newer.id} (${decision.reason})${decision.usedLLM ? ' [LLM]' : ' [heuristic]'}`);
                 toResolve.push(older.id);
               } else if (decision && decision.action === 'NONE') {
-                actions.push(`🗑️ #${newer.id} "${newer.title}" → redundant (${decision.reason})`);
+                actions.push(`🗑️ #${newer.id} "${newer.title}" → redundant (${decision.reason})${decision.usedLLM ? ' [LLM]' : ' [heuristic]'}`);
                 toResolve.push(newer.id);
               } else if (decision && decision.action === 'DELETE') {
-                actions.push(`❌ #${decision.targetId ?? older.id} → outdated (${decision.reason})`);
+                actions.push(`❌ #${decision.targetId ?? older.id} → outdated (${decision.reason})${decision.usedLLM ? ' [LLM]' : ' [heuristic]'}`);
                 toResolve.push(decision.targetId ?? older.id);
               }
-            } catch { /* skip failed comparisons */ }
+            } catch (dedupErr) { actions.push(`⚠️ comparison failed: ${(dedupErr as Error)?.message ?? dedupErr}`); }
           }
         }
       }

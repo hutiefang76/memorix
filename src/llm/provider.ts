@@ -100,7 +100,10 @@ async function callOpenAICompatible(
   userMessage: string,
 ): Promise<LLMResponse> {
   const config = currentConfig!;
-  const url = `${config.baseUrl}/chat/completions`;
+  // Auto-fix: append /v1 if baseUrl doesn't end with it (common user mistake)
+  let base = config.baseUrl!.replace(/\/+$/, '');
+  if (!base.endsWith('/v1')) base += '/v1';
+  const url = `${base}/chat/completions`;
 
   const response = await fetch(url, {
     method: 'POST',

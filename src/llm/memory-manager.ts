@@ -171,6 +171,7 @@ ${existingList}`;
     };
   } catch (err) {
     // LLM failed — fall back to heuristic
+    console.error(`[memorix] LLM compact failed, falling back to heuristic:`, (err as Error)?.message ?? err);
     return heuristicCompact(newMemory, existingMemories);
   }
 }

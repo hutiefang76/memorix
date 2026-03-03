@@ -65,14 +65,14 @@ export function resetConfigCache(): void {
 
 // ─── Resolved Getters (env > config.json > default) ──────────────────
 
-/** LLM API key: env > config.json > auto-detect */
+/** LLM API key: MEMORIX-specific env > config.json > generic env fallback */
 export function getLLMApiKey(): string | undefined {
   return (
     process.env.MEMORIX_LLM_API_KEY ||
+    loadFileConfig().llm?.apiKey ||
     process.env.OPENAI_API_KEY ||
     process.env.ANTHROPIC_API_KEY ||
     process.env.OPENROUTER_API_KEY ||
-    loadFileConfig().llm?.apiKey ||
     undefined
   );
 }
