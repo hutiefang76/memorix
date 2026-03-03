@@ -14,7 +14,7 @@
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="license"></a>
   <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
-  <img src="https://img.shields.io/badge/tests-534%20passed-brightgreen?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-593%20passed-brightgreen?style=flat-square" alt="tests">
 </p>
 
 <p align="center">
@@ -212,23 +212,6 @@ npm install -g @huggingface/transformers   # 或: npm install -g fastembed
 
 ---
 
-## 对比
-
-| | [Mem0](https://github.com/mem0ai/mem0) | [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service) | **Memorix** |
-|---|---|---|---|
-| **Agent 支持** | SDK 集成 | 13+（MCP） | **9 个 Agent（MCP）** |
-| **跨 Agent 工作区同步** | — | — | **MCP 配置、规则、技能、工作流** |
-| **知识图谱** | — | 是 | **是（兼容 MCP 官方）** |
-| **混合搜索** | — | 是 | **是（BM25 + 向量）** |
-| **Token 高效检索** | — | — | **3 层渐进式展示** |
-| **自动记忆 Hook** | — | — | **是（多语言模式检测）** |
-| **记忆衰减** | — | 是 | **是（指数衰减 + 豁免）** |
-| **Web 仪表盘** | 云端 | 是 | **是（D3.js 图谱）** |
-| **隐私** | 云端 | 本地 | **100% 本地** |
-| **费用** | 按量付费 | $0 | **$0** |
-
----
-
 ## 开发
 
 ```bash
@@ -236,7 +219,7 @@ git clone https://github.com/AVIDS2/memorix.git
 cd memorix && npm install
 
 npm run dev       # 监听模式
-npm test          # 534 个测试
+npm test          # 593 个测试
 npm run build     # 生产构建
 ```
 
@@ -249,6 +232,16 @@ npm run build     # 生产构建
 ## 致谢
 
 参考了 [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service)、[MemCP](https://github.com/maydali28/memcp)、[claude-mem](https://github.com/anthropics/claude-code) 和 [Mem0](https://github.com/mem0ai/mem0) 的设计思路。
+
+## Star History
+
+<a href="https://star-history.com/#AVIDS2/memorix&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date" width="600" />
+ </picture>
+</a>
 
 ## 许可证
 

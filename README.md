@@ -233,6 +233,7 @@ Or use existing env vars — Memorix auto-detects:
 
 ```bash
 memorix              # Interactive menu (no args)
+memorix configure    # LLM + Embedding provider setup (TUI)
 memorix status       # Project info + stats
 memorix dashboard    # Web UI at localhost:3210
 memorix hooks install # Auto-capture for IDEs
@@ -273,23 +274,6 @@ memorix hooks install # Auto-capture for IDEs
 
 ---
 
-## Comparison
-
-| | [Mem0](https://github.com/mem0ai/mem0) | [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service) | **Memorix** |
-|---|---|---|---|
-| **Agents** | SDK-based | 13+ (MCP) | **9 agents (MCP)** |
-| **Cross-agent workspace sync** | — | — | **MCP configs, rules, skills, workflows** |
-| **Knowledge graph** | — | Yes | **Yes (MCP Official compatible)** |
-| **Hybrid search** | — | Yes | **Yes (BM25 + vector)** |
-| **Token-efficient retrieval** | — | — | **3-layer progressive disclosure** |
-| **Auto-memory hooks** | — | — | **Yes (multi-language pattern detection)** |
-| **Memory decay** | — | Yes | **Yes (exponential + immunity)** |
-| **Web dashboard** | Cloud | Yes | **Yes (D3.js graph)** |
-| **Privacy** | Cloud | Local | **100% local** |
-| **Cost** | Per-call | $0 | **$0** |
-
----
-
 ## Development
 
 ```bash
@@ -297,7 +281,7 @@ git clone https://github.com/AVIDS2/memorix.git
 cd memorix && npm install
 
 npm run dev       # watch mode
-npm test          # 534 tests
+npm test          # 593 tests
 npm run build     # production build
 ```
 
@@ -310,6 +294,16 @@ npm run build     # production build
 ## Acknowledgements
 
 Built on ideas from [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service), [MemCP](https://github.com/maydali28/memcp), [claude-mem](https://github.com/anthropics/claude-code), and [Mem0](https://github.com/mem0ai/mem0).
+
+## Star History
+
+<a href="https://star-history.com/#AVIDS2/memorix&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date" width="600" />
+ </picture>
+</a>
 
 ## License
 

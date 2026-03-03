@@ -1,6 +1,6 @@
 # Memorix 架构文档
 
-> 最后更新: 2026-02-15
+> 最后更新: 2026-03-04
 > 维护者: 项目创建者 + AI 协作开发
 
 ## 项目定位
@@ -35,7 +35,7 @@ Memorix 是一个 **跨 AI Agent 的持久化记忆层**，以 MCP (Model Contex
 │  │                    Memorix MCP Server                      │   │
 │  │  ┌──────────────────────────────────────────────────────┐ │   │
 │  │  │              server.ts (849行)                        │ │   │
-│  │  │  16个 MCP Tools + 热重载 + 自动Hook安装 + 同步建议    │ │   │
+│  │  │  25个 MCP Tools + 热重载 + 自动Hook安装 + 同步建议    │ │   │
 │  │  └──────┬──────┬──────────┬──────────┬──────────────────┘ │   │
 │  │         │      │          │          │                     │   │
 │  │  ┌──────▼──┐ ┌─▼────────┐│  ┌───────▼──────┐             │   │
@@ -50,7 +50,7 @@ Memorix 是一个 **跨 AI Agent 的持久化记忆层**，以 MCP (Model Contex
 │  │             │            │                                │   │
 │  │  ┌──────────▼────────┐   │                                │   │
 │  │  │  Embedding Layer  │   │                                │   │
-│  │  │  FastEmbed (opt)  │   │                                │   │
+│  │  │ API/FastEmbed/TF │   │                                │   │
 │  │  └───────────────────┘   │                                │   │
 │  │                          │                                │   │
 │  │  ┌───────────────────────▼─────────────────────────────┐  │   │
@@ -154,35 +154,33 @@ Agent --memorix_detail--> server.ts
 
 ### Layer 5: 工作空间同步 (`workspace/` + `rules/`)
 - `workspace/engine.ts` — 跨 Agent 工作空间迁移
-- `workspace/mcp-adapters/` — 6个 MCP 配置适配器
+- `workspace/mcp-adapters/` — 9个 MCP 配置适配器
 - `workspace/workflow-sync.ts` — Workflow 同步
 - `workspace/applier.ts` — 配置写入 + 备份/回滚
 - `rules/syncer.ts` — 规则扫描/去重/冲突检测
-- `rules/adapters/` — 6个规则格式适配器
+- `rules/adapters/` — 8个规则格式适配器
 
 ### Layer 6: 基础设施
-- `server.ts` — MCP Server 主入口 (16个工具注册)
-- `cli/index.ts` — Citty CLI 框架
+- `server.ts` — MCP Server 主入口 (25个工具注册)
+- `cli/index.ts` — Citty CLI 框架 + TUI 配置向导
+- `config.ts` — 统一配置读取 (env > config.json > 默认值)
 - `project/detector.ts` — Git-based 项目检测
-- `embedding/provider.ts` — Embedding 抽象层 + FastEmbed
+- `embedding/provider.ts` — Embedding 抽象层 (API/FastEmbed/Transformers)
+- `embedding/api-provider.ts` — OpenAI-compatible API Embedding (10K LRU 缓存)
+- `llm/provider.ts` — LLM 提供者 (OpenAI/Anthropic/OpenRouter)
+- `llm/memory-manager.ts` — Compact-on-Write + 启发式去重
 
 ---
 
 ## 部署模式
 
-### 方式 1: npx 零安装 (推荐)
-```bash
-npx -y memorix@latest serve
-```
-Agent 的 MCP 配置中指定此命令即可。
-
-### 方式 2: 全局安装
+### 方式 1: 全局安装 (推荐)
 ```bash
 npm install -g memorix
 memorix serve
 ```
 
-### 方式 3: 本地开发
+### 方式 2: 本地开发
 ```bash
 git clone <repo>
 cd memorix
@@ -197,7 +195,7 @@ pnpm test   # vitest 运行测试
 
 - **语言**: TypeScript (strict mode)
 - **打包**: tsup (ESM output)
-- **测试**: Vitest (274 tests, 22 files)
+- **测试**: Vitest (593 tests, 44 files)
 - **CLI**: Citty (命令定义) + Clack (交互提示)
 - **代码风格**: 每个文件顶部有 JSDoc 注释块说明来源和设计意图
 - **错误处理**: Hooks 系统永远不抛错 (silent fail), MCP 工具返回 `isError: true`
