@@ -356,6 +356,35 @@ export interface WorkspaceSyncResult {
   };
 }
 
+// ============================================================
+// Mini-Skills — Promoted memories that never decay
+// ============================================================
+
+/** A mini-skill promoted from one or more observations */
+export interface MiniSkill {
+  id: number;
+  /** Observation IDs this mini-skill was derived from */
+  sourceObservationIds: number[];
+  /** Entity the source observations belong to */
+  sourceEntity: string;
+  /** Short title for the skill */
+  title: string;
+  /** What the agent should do (imperative instruction) */
+  instruction: string;
+  /** When this skill should be applied (scenario description) */
+  trigger: string;
+  /** Key facts extracted from source observations */
+  facts: string[];
+  /** Project this skill belongs to */
+  projectId: string;
+  /** ISO timestamp */
+  createdAt: string;
+  /** How many times this skill was injected in session_start */
+  usedCount: number;
+  /** Classification tags */
+  tags: string[];
+}
+
 /** MCP config format adapter interface */
 export interface MCPConfigAdapter {
   readonly source: AgentTarget;

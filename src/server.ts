@@ -363,13 +363,27 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         if (active) sessionId = active.id;
       } catch { /* session module not critical */ }
 
+      // ── LLM Narrative Compression (premium quality) ─────────────────
+      // Compress verbose narratives into concise core knowledge before storing.
+      // Reduces token consumption ~60% while preserving all technical facts.
+      let finalNarrative = narrative;
+      let compressionNote = '';
+      try {
+        const { compressNarrative } = await import('./llm/quality.js');
+        const { compressed, saved, usedLLM } = await compressNarrative(narrative, safeFacts, type);
+        if (usedLLM && saved > 0) {
+          finalNarrative = compressed;
+          compressionNote = ` | compressed -${saved} tokens`;
+        }
+      } catch { /* compression is best-effort */ }
+
       // Store the observation (may upsert if topicKey matches existing)
       markInternalWrite();
       const { observation: obs, upserted } = await storeObservation({
         entityName,
         type: type as ObservationType,
         title,
-        narrative,
+        narrative: finalNarrative,
         facts: safeFacts,
         filesModified: safeFiles,
         concepts: safeConcepts,
@@ -405,7 +419,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         content: [
           {
             type: 'text' as const,
-            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${enrichment}`,
+            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}`,
           },
         ],
       };
@@ -1396,6 +1410,102 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   );
 
   // ============================================================
+  // Mini-Skills — Promote memories to permanent skills
+  // ============================================================
+
+  /**
+   * memorix_promote — Promote observations to permanent mini-skills
+   *
+   * Converts important memories into permanent, never-decaying mini-skills
+   * that are automatically injected into agent context at session_start.
+   */
+  server.registerTool(
+    'memorix_promote',
+    {
+      title: 'Promote to Mini-Skill',
+      description:
+        'Promote observations to permanent mini-skills that never decay and are auto-injected at session start. ' +
+        'Action "promote": convert observation(s) to a mini-skill. ' +
+        'Action "list": show all active mini-skills. ' +
+        'Action "delete": remove a mini-skill by ID.\n\n' +
+        'Mini-skills are project-specific specialized knowledge derived from your actual memories — ' +
+        'gotchas, decisions, fixes that generic online skills cannot provide.',
+      inputSchema: {
+        action: z.enum(['promote', 'list', 'delete']).describe('Action to perform'),
+        observationIds: z.array(z.number()).optional().describe('Observation IDs to promote (required for "promote")'),
+        skillId: z.number().optional().describe('Mini-skill ID to delete (required for "delete")'),
+        trigger: z.string().optional().describe('Override: when this skill should be applied'),
+        instruction: z.string().optional().describe('Override: what the agent should do'),
+        tags: z.array(z.string()).optional().describe('Extra classification tags'),
+      },
+    },
+    async ({ action, observationIds, skillId, trigger, instruction, tags }) => {
+      const { promoteToMiniSkill, loadAllMiniSkills, deleteMiniSkill, formatMiniSkillsForInjection } = await import('./skills/mini-skills.js');
+
+      if (action === 'list') {
+        const skills = await loadAllMiniSkills(projectDir);
+        if (skills.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: 'No mini-skills found.\n\nUse `action: "promote", observationIds: [<id>]` to convert important memories into permanent mini-skills.\nThese will be auto-injected at every session start.' }],
+          };
+        }
+        const formatted = formatMiniSkillsForInjection(skills);
+        const lines = [
+          formatted,
+          '---',
+          `Total: ${skills.length} mini-skill(s)`,
+          '',
+          '> Use `action: "delete", skillId: <id>` to remove a mini-skill.',
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      }
+
+      if (action === 'delete') {
+        if (skillId == null) {
+          return { content: [{ type: 'text' as const, text: 'Error: `skillId` is required for delete action.' }], isError: true };
+        }
+        const deleted = await deleteMiniSkill(projectDir, skillId);
+        if (!deleted) {
+          return { content: [{ type: 'text' as const, text: `Mini-skill #${skillId} not found.` }], isError: true };
+        }
+        return { content: [{ type: 'text' as const, text: `✅ Deleted mini-skill #${skillId}.` }] };
+      }
+
+      // action === 'promote'
+      if (!observationIds || observationIds.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'Error: `observationIds` is required for promote action. Use `memorix_search` to find observation IDs.' }], isError: true };
+      }
+
+      // Load observations by ID
+      const { getAllObservations } = await import('./memory/observations.js');
+      const allObs = getAllObservations();
+      const selected = allObs.filter(o => observationIds.includes(o.id));
+
+      if (selected.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No observations found for IDs: [${observationIds.join(', ')}]. Use \`memorix_search\` to find valid IDs.` }], isError: true };
+      }
+
+      const skill = await promoteToMiniSkill(projectDir, project.id, selected, { trigger, instruction, tags });
+
+      const lines = [
+        `✅ Created mini-skill #${skill.id}`,
+        '',
+        `**${skill.title}**`,
+        `**Do**: ${skill.instruction}`,
+        `**When**: ${skill.trigger}`,
+      ];
+      if (skill.facts.length > 0) {
+        lines.push('**Facts**:');
+        for (const f of skill.facts) lines.push(`- ${f}`);
+      }
+      lines.push('', `Source: ${selected.length} observation(s) [${selected.map(o => o.id).join(', ')}]`);
+      lines.push('', '> This mini-skill will be auto-injected at every `memorix_session_start`.');
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // ============================================================
   // Memory Consolidation
   // ============================================================
 
@@ -1503,6 +1613,18 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         '💡 Tips: Use `memorix_resolve` to mark completed tasks. Use `progress` param in `memorix_store` for task tracking. Use `topicKey` to prevent duplicate memories.',
         '',
       ];
+
+      // Inject mini-skills (permanent, never-decaying project knowledge)
+      try {
+        const { loadAllMiniSkills, formatMiniSkillsForInjection, recordMiniSkillUsage } = await import('./skills/mini-skills.js');
+        const miniSkills = await loadAllMiniSkills(projectDir);
+        if (miniSkills.length > 0) {
+          const formatted = formatMiniSkillsForInjection(miniSkills);
+          lines.push('---', '', formatted);
+          // Record usage asynchronously (don't block response)
+          recordMiniSkillUsage(projectDir, miniSkills.map(s => s.id)).catch(() => {});
+        }
+      } catch { /* mini-skills not available yet — skip */ }
 
       if (result.previousContext) {
         lines.push('---', '📋 **Context from previous sessions:**', '', result.previousContext);

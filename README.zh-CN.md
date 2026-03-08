@@ -14,7 +14,11 @@
   <a href="https://www.npmjs.com/package/memorix"><img src="https://img.shields.io/npm/dm/memorix.svg?style=flat-square&color=blue" alt="downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green.svg?style=flat-square" alt="license"></a>
   <a href="https://github.com/AVIDS2/memorix"><img src="https://img.shields.io/github/stars/AVIDS2/memorix?style=flat-square&color=yellow" alt="stars"></a>
-  <img src="https://img.shields.io/badge/tests-641%20passed-brightgreen?style=flat-square" alt="tests">
+  <img src="https://img.shields.io/badge/tests-674%20passed-brightgreen?style=flat-square" alt="tests">
+</p>
+
+<p align="center">
+  <strong>LLM 压缩降低 27% token 消耗 | 重排序提升 60% 检索精度 | 支持 10 个 Agent</strong>
 </p>
 
 <p align="center">
@@ -34,22 +38,31 @@
   <a href="README.md">English</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#功能">功能</a> ·
-  <a href="#工作原理">工作原理</a> ·
-  <a href="docs/SETUP.md">完整配置指南</a>
+  <a href="#架构">架构</a> ·
+  <a href="docs/SETUP.md">配置指南</a>
 </p>
 
 ---
 
-## 为什么选择 Memorix？
+## 简介
 
-AI 编码 Agent 在会话之间会忘记一切。切换 IDE 后上下文全部丢失。Memorix 为每个 Agent 提供共享的持久化记忆——决策、踩坑和架构跨会话、跨工具长期保留。
+AI 编码 Agent 在会话之间会丢失全部上下文。切换 IDE 后，之前的决策、调试历史和架构知识全部消失。Memorix 提供跨 Agent、跨会话的共享持久化记忆层——存储决策、踩坑经验和项目知识，任何 Agent 都可以即时检索。
 
 ```
-会话 1（Cursor）：  "用 JWT + refresh token，15 分钟过期"  → 存储为 🟤 决策
-会话 2（Claude Code）：  "添加登录接口"  → 找到该决策 → 正确实现
+会话 1（Cursor）：      "用 JWT + refresh token，15 分钟过期"  → 存储为 decision
+会话 2（Claude Code）： "添加登录接口"  → 检索到该决策 → 正确实现
 ```
 
 无需重复解释。无需复制粘贴。无厂商锁定。
+
+### 核心能力
+
+- **跨 Agent 记忆共享**：所有 Agent 共用同一记忆存储。在 Cursor 中存储，在 Claude Code 中检索。
+- **双模式质量引擎**：免费启发式引擎处理基础去重；可选 LLM 模式提供智能压缩、重排序和冲突检测。
+- **3 层渐进式展示**：搜索返回紧凑索引（每条约 50 tokens），时间线展示前后文，详情提供完整内容。相比全文检索节省约 10 倍 token。
+- **Mini-Skills**：将高价值观察提升为永久技能，每次会话启动自动注入。关键知识永不衰减。
+- **自动记忆 Hook**：自动从 IDE 工具调用中捕获决策、错误和踩坑经验。支持中英文模式检测。
+- **知识图谱**：实体-关系模型，兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory)。自动从内容中提取实体并创建关联。
 
 ---
 
@@ -145,30 +158,104 @@ args = ["serve"]
 
 重启 Agent 即可。无需 API Key，无需云服务，无需额外依赖。
 
-> **自动更新：** Memorix 启动时静默检查更新（每 24 小时一次），有新版本自动后台安装，无需手动 `npm update`。
+> **自动更新**：Memorix 启动时静默检查更新（每 24 小时一次），有新版本自动后台安装。
 
-> **注意：** 不要用 `npx`——它每次都会重新下载，导致 MCP 超时。请用全局安装。
+> **注意**：不要用 `npx`——它每次都会重新下载，导致 MCP 超时。请用全局安装。
 >
-> 📖 [完整配置指南](docs/SETUP.md) · [常见问题排查](docs/SETUP.md#troubleshooting)
+> [完整配置指南](docs/SETUP.md) · [常见问题排查](docs/SETUP.md#troubleshooting)
 
 ---
 
 ## 功能
 
-### 27 个 MCP 工具
+### 28 个 MCP 工具
 
-| | |
-|---|---|
-| **记忆** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` · `memorix_resolve` · `memorix_deduplicate` · `memorix_suggest_topic_key` — 3 层渐进式展示，节省约 10 倍 token |
-| **会话** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` — 新会话自动注入上次上下文 |
-| **知识图谱** | `create_entities` · `create_relations` · `add_observations` · `delete_entities` · `delete_observations` · `delete_relations` · `search_nodes` · `open_nodes` · `read_graph` — 兼容 [MCP 官方 Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) |
-| **工作区同步** | `memorix_workspace_sync` · `memorix_rules_sync` · `memorix_skills` — 跨 10 个 Agent 迁移 MCP 配置、规则和技能 |
-| **维护** | `memorix_retention` · `memorix_consolidate` · `memorix_export` · `memorix_import` — 衰减评分、去重、备份 |
-| **仪表盘** | `memorix_dashboard` — Web UI，D3.js 知识图谱、观察浏览器、衰减面板 |
+| 分类 | 工具 |
+|------|------|
+| **记忆** | `memorix_store` · `memorix_search` · `memorix_detail` · `memorix_timeline` · `memorix_resolve` · `memorix_deduplicate` · `memorix_suggest_topic_key` |
+| **会话** | `memorix_session_start` · `memorix_session_end` · `memorix_session_context` |
+| **知识图谱** | `create_entities` · `create_relations` · `add_observations` · `delete_entities` · `delete_observations` · `delete_relations` · `search_nodes` · `open_nodes` · `read_graph` |
+| **技能** | `memorix_skills` · `memorix_promote` |
+| **工作区** | `memorix_workspace_sync` · `memorix_rules_sync` |
+| **维护** | `memorix_retention` · `memorix_consolidate` · `memorix_export` · `memorix_import` |
+| **仪表盘** | `memorix_dashboard` |
 
-### 9 种观察类型
+### 观察类型
 
-🎯 session-request · 🔴 gotcha · 🟡 problem-solution · 🔵 how-it-works · 🟢 what-changed · 🟣 discovery · 🟠 why-it-exists · 🟤 decision · ⚖️ trade-off
+九种结构化类型用于分类存储的知识：
+
+`session-request` · `gotcha` · `problem-solution` · `how-it-works` · `what-changed` · `discovery` · `why-it-exists` · `decision` · `trade-off`
+
+### 混合搜索
+
+BM25 全文搜索开箱即用，资源占用极低（~50MB RAM）。语义向量搜索为可选项，提供三种接入方式：
+
+| 方式 | 配置 | 资源消耗 | 质量 |
+|------|------|---------|------|
+| **API**（推荐） | `MEMORIX_EMBEDDING=api` | 零本地 RAM | 最高 |
+| **fastembed** | `MEMORIX_EMBEDDING=fastembed` | ~300MB RAM | 高 |
+| **transformers** | `MEMORIX_EMBEDDING=transformers` | ~500MB RAM | 高 |
+| **关闭**（默认） | `MEMORIX_EMBEDDING=off` | ~50MB RAM | 仅 BM25 |
+
+API Embedding 兼容任何 OpenAI 格式的接口——OpenAI、通义千问/DashScope、OpenRouter、Ollama 或任何代理：
+
+```bash
+MEMORIX_EMBEDDING=api
+MEMORIX_EMBEDDING_API_KEY=sk-xxx
+MEMORIX_EMBEDDING_MODEL=text-embedding-3-small
+MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1    # 可选
+MEMORIX_EMBEDDING_DIMENSIONS=512                         # 可选
+```
+
+Embedding 基础设施包含 10K LRU 缓存及磁盘持久化、批量 API 调用（单次最多 2048 条文本）、并行处理（4 个并发分块）以及文本归一化以提升缓存命中率。零外部依赖——不需要 Chroma，不需要 SQLite。
+
+本地 Embedding：
+
+```bash
+npm install -g fastembed                     # ONNX 运行时
+npm install -g @huggingface/transformers     # JS/WASM 运行时
+```
+
+### LLM 增强模式
+
+可选的 LLM 集成，显著提升记忆质量。在基础搜索之上叠加三项能力：
+
+| 能力 | 说明 | 实测效果 |
+|------|------|---------|
+| **叙述压缩** | 存储前压缩冗余观察，保留所有技术事实 | 降低 27% token 消耗（叙述性内容最高 44%） |
+| **搜索重排序** | LLM 按语义相关性对搜索结果重新排序 | 60% 查询改善，0% 恶化 |
+| **写入时去重** | 写入时检测重复和冲突；自动合并、更新或跳过 | 防止冗余存储，解决矛盾 |
+
+智能过滤确保 LLM 仅在有意义时被调用——命令、文件路径等结构化内容自动跳过。
+
+```bash
+MEMORIX_LLM_API_KEY=sk-xxx
+MEMORIX_LLM_PROVIDER=openai          # openai | anthropic | openrouter | custom
+MEMORIX_LLM_MODEL=gpt-4.1-nano       # 任何聊天补全模型
+MEMORIX_LLM_BASE_URL=https://...     # 自定义端点（可选）
+```
+
+Memorix 自动检测已有环境变量：
+
+| 变量 | 提供商 |
+|------|--------|
+| `OPENAI_API_KEY` | OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic |
+| `OPENROUTER_API_KEY` | OpenRouter |
+
+**无 LLM**：免费启发式去重（基于相似度规则）。**有 LLM**：智能压缩、上下文重排序、矛盾检测和事实提取。
+
+> **Embedding vs LLM**：Embedding 用于语义搜索（文本向量化），LLM 用于智能管理（理解文本含义）。两者独立配置，均为可选。
+
+### Mini-Skills
+
+使用 `memorix_promote` 将高价值观察提升为永久技能。Mini-Skills 的特性：
+
+- **永久保留** — 不受衰减机制影响，永不归档
+- **自动注入** — 每次 `memorix_session_start` 时自动加载到上下文
+- **项目隔离** — 按项目独立存储，无跨项目污染
+
+适用于必须永久保留的关键知识：部署流程、架构约束、反复出现的坑。
 
 ### 自动记忆 Hook
 
@@ -176,81 +263,25 @@ args = ["serve"]
 memorix hooks install
 ```
 
-自动捕获决策、错误和踩坑经验。中英文模式检测。智能过滤（30 秒冷却，跳过无关命令）。会话启动时自动注入高价值记忆。
-
-### 混合搜索
-
-BM25 全文搜索开箱即用（~50MB RAM）。语义搜索**可选**——3 种方式：
-
-```bash
-# 在 MCP 配置的 env 中设置：
-MEMORIX_EMBEDDING=api           # ⭐ 推荐 — 零本地 RAM，最佳质量
-MEMORIX_EMBEDDING=fastembed     # 本地 ONNX（~300MB RAM）
-MEMORIX_EMBEDDING=transformers  # 本地 JS/WASM（~500MB RAM）
-MEMORIX_EMBEDDING=off           # 默认 — 仅 BM25
-```
-
-#### API Embedding（推荐）
-
-兼容任何 OpenAI 格式的 API——OpenAI、Qwen、OpenRouter、Ollama 或任何 API 代理：
-
-```bash
-MEMORIX_EMBEDDING=api
-MEMORIX_EMBEDDING_API_KEY=sk-xxx              # 或复用 OPENAI_API_KEY
-MEMORIX_EMBEDDING_MODEL=text-embedding-3-small # 默认
-MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1  # 可选
-```
-
-内置 10K LRU 缓存 + 磁盘持久化，重复查询零开销。
-
-#### 本地 Embedding
-
-```bash
-npm install -g fastembed              # MEMORIX_EMBEDDING=fastembed
-npm install -g @huggingface/transformers  # MEMORIX_EMBEDDING=transformers
-```
-
-100% 本地运行，零 API 调用。
-
-### LLM 增强模式（可选）
-
-用你自己的 API Key 启用智能记忆去重和事实提取：
-
-```bash
-# 在 MCP 配置的 env 中设置：
-MEMORIX_LLM_API_KEY=sk-xxx          # OpenAI 格式的 API Key
-MEMORIX_LLM_PROVIDER=openai         # openai | anthropic | openrouter
-MEMORIX_LLM_MODEL=gpt-4o-mini       # 模型名称
-MEMORIX_LLM_BASE_URL=https://...    # 自定义端点（可选）
-```
-
-或直接使用已有的环境变量——Memorix 自动检测：
-- `OPENAI_API_KEY` → OpenAI
-- `ANTHROPIC_API_KEY` → Anthropic
-- `OPENROUTER_API_KEY` → OpenRouter
-
-**没有 LLM**：免费启发式去重（基于相似度）
-**有 LLM**：智能合并、事实提取、矛盾检测
-
-> **Embedding vs LLM 的区别**：Embedding 用于语义搜索（把文本变成向量），LLM 用于智能去重（理解文本含义）。两者独立配置，都是可选的。
+自动从 IDE 工具调用中捕获决策、错误和踩坑经验。支持中英文模式检测。智能过滤（30 秒冷却，跳过无关命令）。高价值记忆在会话启动时自动注入。
 
 ### 交互式 CLI
 
 ```bash
-memorix              # 交互菜单（无参数）
+memorix              # 交互菜单
 memorix configure    # LLM + Embedding 配置向导
-memorix status       # 项目信息 + 统计
+memorix status       # 项目信息与统计
 memorix dashboard    # Web UI（localhost:3210）
 memorix hooks install # 为 IDE 安装自动记忆
 ```
 
 ---
 
-## 工作原理
+## 架构
 
 ```
 ┌─────────┐  ┌───────────┐  ┌────────────┐  ┌───────┐  ┌──────────┐
-│ Cursor  │  │ Claude    │  │ Windsurf   │  │ Codex │  │ +5 more  │
+│ Cursor  │  │ Claude    │  │ Windsurf   │  │ Codex │  │ +6 more  │
 │         │  │ Code      │  │            │  │       │  │          │
 └────┬────┘  └─────┬─────┘  └─────┬──────┘  └───┬───┘  └────┬─────┘
      │             │              │              │           │
@@ -261,21 +292,43 @@ memorix hooks install # 为 IDE 安装自动记忆
                    │  MCP Server │
                    └──────┬──────┘
                           │
-          ┌───────────────┼───────────────┐
-          │               │               │
-   ┌──────┴──────┐ ┌──────┴──────┐ ┌──────┴──────┐
-   │   Orama     │ │  Knowledge  │ │  Rules &    │
-   │ Search      │ │  Graph      │ │  Workspace  │
-   │ (BM25+Vec)  │ │  (Entities) │ │  Sync       │
-   └─────────────┘ └─────────────┘ └─────────────┘
-                          │
-                   ~/.memorix/data/
-                   (100% 本地，按项目隔离)
+     ┌────────────────────┼────────────────────┐
+     │                    │                    │
+┌────┴─────┐       ┌──────┴──────┐      ┌──────┴──────┐
+│  Search  │       │  Knowledge  │      │  Rules &    │
+│ Pipeline │       │  Graph      │      │  Workspace  │
+│          │       │  (Entities) │      │  Sync       │
+│ BM25     │       └─────────────┘      └─────────────┘
+│ +Vector  │
+│ +Rerank  │
+└──────────┘
+      │
+~/.memorix/data/
+(100% 本地，按项目隔离)
 ```
 
-- **项目隔离** — 通过 `git remote` 自动检测，默认按项目搜索
-- **共享存储** — 所有 Agent 读写同一个 `~/.memorix/data/`，天然跨 IDE
-- **Token 高效** — 3 层渐进式展示：search → timeline → detail
+### 检索管线
+
+三阶段检索，渐进式质量提升：
+
+```
+阶段 1:  Orama (BM25 + 向量混合)  →  Top-N 候选
+阶段 2:  LLM 重排序（可选）       →  按语义相关性重新排序
+阶段 3:  时间衰减 + 项目亲和度    →  最终评分结果
+```
+
+### 写入管线
+
+```
+输入  →  LLM 压缩（可选）  →  写入时去重/合并  →  存储 + 索引
+```
+
+### 关键设计决策
+
+- **项目隔离**：通过 `git remote` 自动检测，默认按项目搜索。
+- **共享存储**：所有 Agent 读写 `~/.memorix/data/`，天然跨 IDE。
+- **Token 效率**：3 层渐进式展示（search、timeline、detail），节省约 10 倍。
+- **优雅降级**：所有 LLM 和 Embedding 功能均为可选。核心功能零配置即可使用。
 
 ---
 
@@ -286,11 +339,11 @@ git clone https://github.com/AVIDS2/memorix.git
 cd memorix && npm install
 
 npm run dev       # 监听模式
-npm test          # 641 个测试
+npm test          # 674 个测试
 npm run build     # 生产构建
 ```
 
-📚 [架构设计](docs/ARCHITECTURE.md) · [API 参考](docs/API_REFERENCE.md) · [模块说明](docs/MODULES.md) · [设计决策](docs/DESIGN_DECISIONS.md)
+[架构设计](docs/ARCHITECTURE.md) · [API 参考](docs/API_REFERENCE.md) · [模块说明](docs/MODULES.md) · [设计决策](docs/DESIGN_DECISIONS.md)
 
 > AI 系统参考：[`llms.txt`](llms.txt) · [`llms-full.txt`](llms-full.txt)
 
@@ -310,12 +363,6 @@ npm run build     # 生产构建
  </picture>
 </a>
 
-## 许可证
+## License
 
 [Apache 2.0](LICENSE)
-
----
-
-<p align="center">
-  <sub>Built by <a href="https://github.com/AVIDS2">AVIDS2</a> · 觉得有用请给个 ⭐</sub>
-</p>

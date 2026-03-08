@@ -429,6 +429,55 @@ export async function loadIdCounter(projectDir: string): Promise<number> {
 }
 
 /**
+ * Save mini-skills data as JSON.
+ */
+export async function saveMiniSkillsJson(
+  projectDir: string,
+  skills: unknown[],
+): Promise<void> {
+  const filePath = path.join(projectDir, 'mini-skills.json');
+  await atomicWriteFile(filePath, JSON.stringify(skills, null, 2));
+}
+
+/**
+ * Load mini-skills data from JSON.
+ */
+export async function loadMiniSkillsJson(projectDir: string): Promise<unknown[]> {
+  const filePath = path.join(projectDir, 'mini-skills.json');
+  try {
+    const data = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Load the mini-skills ID counter.
+ */
+export async function loadMiniSkillsCounter(projectDir: string): Promise<number> {
+  const filePath = path.join(projectDir, 'mini-skills-counter.json');
+  try {
+    const data = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(data).nextId ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Save the mini-skills ID counter.
+ */
+export async function saveMiniSkillsCounter(projectDir: string, nextId: number): Promise<void> {
+  const filePath = path.join(projectDir, 'mini-skills-counter.json');
+  await atomicWriteFile(filePath, JSON.stringify({ nextId }));
+}
+
+/**
  * Save sessions data as JSON.
  */
 export async function saveSessionsJson(

@@ -226,28 +226,33 @@ export function getRetentionSummary(
 export async function archiveExpired(
   projectDir: string,
   referenceTime?: Date,
+  accessMap?: Map<number, { accessCount: number; lastAccessedAt: string }>,
 ): Promise<{ archived: number; remaining: number }> {
   return await withFileLock(projectDir, async () => {
     const allObs = await loadObservationsJson(projectDir) as Observation[];
 
     // Convert to MemorixDocument-like shape for zone calculation
-    const toDoc = (obs: Observation): MemorixDocument => ({
-      id: `obs-${obs.id}`,
-      observationId: obs.id,
-      entityName: obs.entityName,
-      type: obs.type,
-      title: obs.title,
-      narrative: obs.narrative,
-      facts: obs.facts.join('\n'),
-      filesModified: obs.filesModified.join('\n'),
-      concepts: obs.concepts.join(', '),
-      tokens: obs.tokens,
-      createdAt: obs.createdAt,
-      projectId: obs.projectId,
-      accessCount: 0,
-      lastAccessedAt: '',
-      status: obs.status ?? 'active',
-    });
+    // Use accessMap (from Orama index) when available for accurate immunity checks
+    const toDoc = (obs: Observation): MemorixDocument => {
+      const access = accessMap?.get(obs.id);
+      return {
+        id: `obs-${obs.id}`,
+        observationId: obs.id,
+        entityName: obs.entityName,
+        type: obs.type,
+        title: obs.title,
+        narrative: obs.narrative,
+        facts: obs.facts.join('\n'),
+        filesModified: obs.filesModified.join('\n'),
+        concepts: obs.concepts.join(', '),
+        tokens: obs.tokens,
+        createdAt: obs.createdAt,
+        projectId: obs.projectId,
+        accessCount: access?.accessCount ?? 0,
+        lastAccessedAt: access?.lastAccessedAt ?? '',
+        status: obs.status ?? 'active',
+      };
+    };
 
     const toArchive: Observation[] = [];
     const toKeep: Observation[] = [];
