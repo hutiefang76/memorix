@@ -10,7 +10,7 @@
 
 import type { Observation, ObservationType, ObservationStatus, MemorixDocument, ProgressInfo } from '../types.js';
 import { TOPIC_KEY_FAMILIES } from '../types.js';
-import { insertObservation, generateEmbedding, batchGenerateEmbeddings, isEmbeddingEnabled } from '../store/orama-store.js';
+import { insertObservation, removeObservation, resetDb, generateEmbedding, batchGenerateEmbeddings, isEmbeddingEnabled } from '../store/orama-store.js';
 import { saveObservationsJson, loadObservationsJson, saveIdCounter, loadIdCounter } from '../store/persistence.js';
 import { withFileLock } from '../store/file-lock.js';
 import { countTextTokens } from '../compact/token-budget.js';
@@ -471,6 +471,9 @@ export function suggestTopicKey(type: string, title: string): string {
 export async function reindexObservations(): Promise<number> {
   if (observations.length === 0) return 0;
 
+  // Reset the Orama index to ensure clean reindex (idempotent)
+  await resetDb();
+
   // Batch-generate all embeddings at once (much faster than individual calls)
   let embeddings: (number[] | null)[] = [];
   if (isEmbeddingEnabled()) {
@@ -489,8 +492,9 @@ export async function reindexObservations(): Promise<number> {
     const obs = observations[i];
     try {
       const embedding = embeddings[i] ?? null;
+      const docId = `obs-${obs.id}`;
       const doc: MemorixDocument = {
-        id: `obs-${obs.id}`,
+        id: docId,
         observationId: obs.id,
         entityName: obs.entityName,
         type: obs.type,

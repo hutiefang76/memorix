@@ -1,4 +1,8 @@
 import { defineConfig } from 'tsup';
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
+const define = { __MEMORIX_VERSION__: JSON.stringify(pkg.version) };
 
 export default defineConfig([
   {
@@ -9,6 +13,7 @@ export default defineConfig([
     sourcemap: true,
     splitting: false,
     shims: true,
+    define,
     external: ['fastembed', '@huggingface/transformers'],
   },
   {
@@ -20,6 +25,7 @@ export default defineConfig([
     clean: true,
     splitting: false,
     shims: true,
+    define,
     banner: {
       js: [
         '#!/usr/bin/env node',

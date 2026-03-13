@@ -220,7 +220,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   // Create MCP server (or use existing one from roots-aware flow)
   const server = existingServer ?? new McpServer({
     name: 'memorix',
-    version: '0.1.0',
+    version: typeof __MEMORIX_VERSION__ !== 'undefined' ? __MEMORIX_VERSION__ : '1.0.1',
   });
 
   // ================================================================

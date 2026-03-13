@@ -71,7 +71,7 @@ export default defineCommand({
         // Must connect transport first to send listRoots request.
         // Register a placeholder tool so tools/list returns 200 instead of -32601.
         console.error(`[memorix] cwd may not be a valid project, trying MCP roots protocol...`);
-        const mcpServer = new McpServer({ name: 'memorix', version: '0.1.0' });
+        const mcpServer = new McpServer({ name: 'memorix', version: typeof __MEMORIX_VERSION__ !== 'undefined' ? __MEMORIX_VERSION__ : '1.0.1' });
 
         mcpServer.registerTool('_memorix_loading', {
           description: 'Memorix is initializing, detecting project root...',

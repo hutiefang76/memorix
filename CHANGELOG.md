@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.2] — 2026-03-14
+
+### Fixed
+- **MCP Server version mismatch** — Server now reports the correct version from `package.json` (was hardcoded `0.1.0`). Injected at build time via tsup `define`.
+- **CI Node.js matrix** — Removed Node 18 from CI matrix to match `engines: >=20` in `package.json`.
+- **Orama reindex idempotency** — `reindexObservations()` now resets the Orama DB before rebuilding, eliminating "document already exists" errors in multi-session scenarios.
+- **E2E tests no longer touch real user data** — Mini-skills E2E tests now use a temporary directory with synthetic observations instead of reading/writing `~/.memorix/data/`.
+
+---
+
 ## [1.0.1] — 2026-03-14
 
 ### Fixed
