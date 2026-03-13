@@ -2266,13 +2266,34 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
       if (autoInstall) {
         const { getHookStatus, installHooks, detectInstalledAgents } = await import('./hooks/installers/index.js');
+        const { join } = await import('node:path');
+        const { access } = await import('node:fs/promises');
         const workDir = cwd ?? process.cwd();
         const statuses = await getHookStatus(workDir);
         const installedAgents = new Set(statuses.filter((s) => s.installed).map((s) => s.agent));
         const detectedAgents = await detectInstalledAgents();
 
+        // Map agent → project-level marker directory that the IDE creates on its own.
+        // Only auto-install hooks if this directory already exists in the project,
+        // preventing creation of unwanted IDE config dirs (e.g. .windsurf/ in a Cursor project).
+        const AGENT_MARKER_DIR: Record<string, string> = {
+          claude: '.claude',
+          windsurf: '.windsurf',
+          cursor: '.cursor',
+          copilot: '.vscode',
+          opencode: '.opencode',
+          kiro: '.kiro',
+          antigravity: '.gemini',
+          trae: '.trae',
+        };
+
         for (const agent of detectedAgents) {
           if (installedAgents.has(agent)) continue;
+          // Skip if the IDE's marker directory doesn't exist in this project
+          const markerDir = AGENT_MARKER_DIR[agent];
+          if (markerDir) {
+            try { await access(join(workDir, markerDir)); } catch { continue; }
+          }
           try {
             const config = await installHooks(agent, workDir);
             console.error(`[memorix] Auto-installed hooks for ${agent} → ${config.configPath}`);

@@ -41,7 +41,7 @@ import type { EmbeddingProvider } from './provider.js';
 
 // ─── Cache Configuration ─────────────────────────────────────────────
 
-const CACHE_DIR = join(homedir(), '.memorix', 'data');
+const CACHE_DIR = process.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data');
 const CACHE_FILE = join(CACHE_DIR, '.embedding-api-cache.json');
 
 const cache = new Map<string, number[]>();

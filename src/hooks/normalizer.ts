@@ -368,7 +368,7 @@ function normalizeGemini(payload: Record<string, unknown>, event: HookEvent): Pa
  */
 function normalizeOpenCode(payload: Record<string, unknown>, event: HookEvent): Partial<NormalizedHookInput> {
   const result: Partial<NormalizedHookInput> = {
-    sessionId: '',
+    sessionId: (payload.session_id as string) ?? (payload.sessionId as string) ?? '',
     cwd: (payload.cwd as string) ?? '',
   };
 

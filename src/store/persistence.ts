@@ -17,8 +17,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { atomicWriteFile } from './file-lock.js';
 
-/** Default base data directory */
-const DEFAULT_DATA_DIR = path.join(os.homedir(), '.memorix', 'data');
+/** Default base data directory — overridable via MEMORIX_DATA_DIR env var */
+const DEFAULT_DATA_DIR = process.env.MEMORIX_DATA_DIR || path.join(os.homedir(), '.memorix', 'data');
 
 /**
  * Sanitize a projectId for use as a directory name.

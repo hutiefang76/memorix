@@ -19,7 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { ProjectInfo } from '../types.js';
 
-const DEFAULT_DATA_DIR = path.join(os.homedir(), '.memorix', 'data');
+const DEFAULT_DATA_DIR = process.env.MEMORIX_DATA_DIR || path.join(os.homedir(), '.memorix', 'data');
 const ALIAS_FILE = '.project-aliases.json';
 
 /** A group of project IDs that all refer to the same physical project */
