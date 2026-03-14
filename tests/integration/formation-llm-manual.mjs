@@ -1,9 +1,12 @@
 /**
- * Manual test: Formation Pipeline LLM quality test
- * Run: node tests/integration/formation-llm-manual.mjs
+ * Manual E2E test: Formation Pipeline LLM quality via real MCP HTTP server
+ * 
+ * Prerequisites:
+ *   1. Start server: node dist/cli/index.js serve-http --port 37850
+ *   2. Run this:     node tests/integration/formation-llm-manual.mjs
  */
 
-const PORT = 37849;
+const PORT = 37850;
 const BASE = `http://127.0.0.1:${PORT}/mcp`;
 
 async function main() {

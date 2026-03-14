@@ -266,9 +266,13 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         }).optional().describe('Progress tracking for task/feature observations'),
       },
     },
-    async ({ entityName, type, title, narrative, facts, filesModified, concepts, topicKey, progress }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress }) => {
+      // Mutable copies — Formation Pipeline may improve these
+      let entityName = rawEntityName;
+      let type = rawType;
+      let title = rawTitle;
       // Defensive coercion: Claude Code CLI + GLM may send string-encoded arrays
-      const safeFacts = facts ? coerceStringArray(facts) : undefined;
+      let safeFacts = facts ? coerceStringArray(facts) : undefined;
       const safeFiles = filesModified ? coerceStringArray(filesModified) : undefined;
       const safeConcepts = concepts ? coerceStringArray(concepts) : undefined;
 
@@ -497,6 +501,29 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
             }
           }
         } catch { /* compact is best-effort */ }
+      }
+
+      // ── Apply Formation enrichments for 'new' action ─────────────────
+      // When Formation decided 'new', merge LLM-extracted facts into the store.
+      if (formationResult && formationResult.resolution.action === 'new') {
+        const llmFacts = formationResult.extraction.extractedFacts;
+        if (llmFacts.length > 0) {
+          const currentFacts = safeFacts ?? [];
+          const currentLower = new Set(currentFacts.map(f => f.toLowerCase().trim()));
+          const newFacts = llmFacts.filter(f => !currentLower.has(f.toLowerCase().trim()));
+          if (newFacts.length > 0) {
+            safeFacts = [...currentFacts, ...newFacts];
+          }
+        }
+        if (formationResult.extraction.titleImproved && formationResult.title) {
+          title = formationResult.title;
+        }
+        if (formationResult.extraction.typeCorrected && formationResult.type) {
+          type = formationResult.type;
+        }
+        if (formationResult.extraction.entityResolved && formationResult.entityName) {
+          entityName = formationResult.entityName;
+        }
       }
 
       // ── Standard store flow ─────────────────────────────────────────
