@@ -37,6 +37,7 @@ async function interactiveMenu(): Promise<void> {
         { value: 'hooks', label: 'Install hooks', hint: 'auto-capture for IDEs' },
         { value: 'status', label: 'Project status', hint: 'info + stats' },
         { value: 'cleanup', label: 'Clean up', hint: 'remove old memories' },
+        { value: 'ingest', label: 'Ingest from Git', hint: 'commit → memory' },
         { value: 'audit', label: 'Audit trail', hint: 'Memorix-written files' },
         { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
         { value: 'configure', label: 'Configure', hint: 'LLM + embedding settings' },
@@ -76,6 +77,9 @@ async function interactiveMenu(): Promise<void> {
         break;
       case 'cleanup':
         await runCleanupMenu();
+        break;
+      case 'ingest':
+        await runIngestMenu();
         break;
       case 'audit':
         await runAuditList();
@@ -160,6 +164,32 @@ async function runCleanupMenu(): Promise<void> {
     }
     case 'all-memory': {
       const m = await import('./commands/purge-all-memory.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+  }
+}
+
+async function runIngestMenu(): Promise<void> {
+  const action = await p.select({
+    message: 'Git → Memory:',
+    options: [
+      { value: 'commit', label: 'Ingest commit', hint: 'single commit → memory' },
+      { value: 'log', label: 'Ingest log', hint: 'batch recent commits → memories' },
+      { value: 'back', label: '← Back', hint: 'return to main menu' },
+    ],
+  });
+
+  if (p.isCancel(action) || action === 'back') return;
+
+  switch (action) {
+    case 'commit': {
+      const m = await import('./commands/ingest-commit.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'log': {
+      const m = await import('./commands/ingest-log.js');
       await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
       break;
     }
