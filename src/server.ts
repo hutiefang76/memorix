@@ -2635,8 +2635,17 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       }
     } catch { /* skip */ }
 
-    // Sync advisory: compute once, show on first memorix_search
+    // Read behavior config
+    let behaviorConfig: { syncAdvisory: boolean; autoCleanup: boolean } = { syncAdvisory: true, autoCleanup: true };
     try {
+      const { getBehaviorConfig } = await import('./config/behavior.js');
+      behaviorConfig = getBehaviorConfig();
+    } catch { /* defaults */ }
+
+    // Sync advisory: compute once, show on first memorix_search
+    if (!behaviorConfig.syncAdvisory) {
+      console.error('[memorix] Sync advisory disabled via config.');
+    } else try {
       const engine = new WorkspaceSyncEngine(project.rootPath);
       const scan = await engine.scan();
       const lines: string[] = [];
@@ -2682,6 +2691,10 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
 
     // ── Background retention cleanup ────────────────────────────────
     // Archive expired memories automatically so users never need to run it manually.
+    // Respects behavior.autoCleanup config (defaults to true).
+    if (!behaviorConfig.autoCleanup) {
+      console.error('[memorix] Auto-cleanup disabled via config.');
+    } else {
     try {
       const { archiveExpired } = await import('./memory/retention.js');
       const archiveResult = await archiveExpired(projectDir);
@@ -2737,6 +2750,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         }
       }
     } catch { /* consolidation is optional */ }
+    } // end autoCleanup
 
     // Watch for external writes (e.g., from hook processes) and hot-reload.
     // Uses watchFile (polling) instead of watch because atomicWriteFile uses

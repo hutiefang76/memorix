@@ -254,6 +254,17 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
   observation: ReturnType<typeof buildObservation> | null;
   output: HookOutput;
 }> {
+  // Check behavior config for session injection level
+  let injectMode: 'full' | 'minimal' | 'silent' = 'minimal';
+  try {
+    const { getBehaviorConfig } = await import('../config/behavior.js');
+    injectMode = getBehaviorConfig().sessionInject;
+  } catch { /* default to minimal */ }
+
+  if (injectMode === 'silent') {
+    return { observation: null, output: { continue: true } };
+  }
+
   let contextSummary = '';
   try {
     const { detectProject } = await import('../project/detector.js');
@@ -337,13 +348,18 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
     // Silent fail — hooks must never break the agent
   }
 
+  // Build system message based on inject mode
+  let systemMessage: string;
+  if (injectMode === 'full' && contextSummary) {
+    systemMessage = `Previous session context available. Use memorix_search if needed.${contextSummary}`;
+  } else {
+    // minimal: one-line hint, no memory content
+    systemMessage = 'Previous session context available. Use memorix_search if needed.';
+  }
+
   return {
     observation: null,
-    output: {
-      continue: true,
-      systemMessage:
-        `Previous session context available. Use memorix_search if needed.${contextSummary ? '\n(Top memories pre-loaded below)' + contextSummary : ''}`,
-    },
+    output: { continue: true, systemMessage },
   };
 }
 
