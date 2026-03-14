@@ -2619,63 +2619,30 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   );
 
   // Deferred initialization — runs AFTER transport connect so MCP handshake isn't blocked.
-  // Hooks auto-install, sync advisory scan, and file watcher are non-essential for tool
-  // functionality and can take 30-60s on machines with many IDEs/projects.
+  // Sync advisory scan and file watcher are non-essential for tool functionality.
   const deferredInit = async () => {
-    // Auto-install hooks for newly detected agents
-    // Respects ~/.memorix/settings.json { "autoInstallHooks": false } to skip
+    // Check hook installation status and guide user
     try {
-      let autoInstall = true;
-      try {
-        const { homedir } = await import('node:os');
-        const { join } = await import('node:path');
-        const { readFile } = await import('node:fs/promises');
-        const settingsPath = join(homedir(), '.memorix', 'settings.json');
-        const raw = await readFile(settingsPath, 'utf-8');
-        const settings = JSON.parse(raw);
-        if (settings.autoInstallHooks === false) {
-          autoInstall = false;
-          console.error('[memorix] autoInstallHooks disabled in ~/.memorix/settings.json — skipping hook auto-install');
-        }
-      } catch { /* no settings file or parse error — default to auto-install */ }
+      const { getHookStatus } = await import('./hooks/installers/index.js');
+      const workDir = cwd ?? process.cwd();
+      const statuses = await getHookStatus(workDir);
+      const installedAgents = statuses.filter((s) => s.installed).map((s) => s.agent);
 
-      if (autoInstall) {
-        const { getHookStatus, installHooks, detectInstalledAgents } = await import('./hooks/installers/index.js');
-        const { join } = await import('node:path');
-        const { access } = await import('node:fs/promises');
-        const workDir = cwd ?? process.cwd();
-        const statuses = await getHookStatus(workDir);
-        const installedAgents = new Set(statuses.filter((s) => s.installed).map((s) => s.agent));
-        const detectedAgents = await detectInstalledAgents();
-
-        // Map agent → project-level marker directory that the IDE creates on its own.
-        // Only auto-install hooks if this directory already exists in the project,
-        // preventing creation of unwanted IDE config dirs (e.g. .windsurf/ in a Cursor project).
-        const AGENT_MARKER_DIR: Record<string, string> = {
-          claude: '.claude',
-          windsurf: '.windsurf',
-          cursor: '.cursor',
-          copilot: '.vscode',
-          opencode: '.opencode',
-          kiro: '.kiro',
-          antigravity: '.gemini',
-          trae: '.trae',
-        };
-
-        for (const agent of detectedAgents) {
-          if (installedAgents.has(agent)) continue;
-          // Skip if the IDE's marker directory doesn't exist in this project
-          const markerDir = AGENT_MARKER_DIR[agent];
-          if (markerDir) {
-            try { await access(join(workDir, markerDir)); } catch { continue; }
-          }
-          try {
-            const config = await installHooks(agent, workDir);
-            console.error(`[memorix] Auto-installed hooks for ${agent} → ${config.configPath}`);
-          } catch { /* skip */ }
-        }
+      if (installedAgents.length === 0) {
+        console.error('');
+        console.error('🔔 Memorix hooks 未安装');
+        console.error('');
+        console.error('如需安装 hooks，请运行：');
+        console.error('  memorix hooks install');
+        console.error('');
+        console.error('安装后，Memorix 将自动：');
+        console.error('  - 记录编码上下文');
+        console.error('  - 跨 IDE 共享记忆');
+        console.error('');
+      } else {
+        console.error(`✅ Memorix hooks 已安装（${installedAgents.join(', ')}）`);
       }
-    } catch { /* hooks install is optional */ }
+    } catch { /* skip */ }
 
     // Sync advisory: compute once, show on first memorix_search
     try {
