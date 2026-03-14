@@ -174,7 +174,7 @@ export function verifyToken(token: string) {
     const { observation, output } = await handleHookEvent(input);
     // SessionStart injects context, doesn't store
     expect(observation).toBeNull();
-    expect(output.systemMessage).toContain('Memorix is active');
+    expect(output.systemMessage).toContain('Previous session context available');
   });
 
   // ─── Stop (session end) ───

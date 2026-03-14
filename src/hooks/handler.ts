@@ -342,7 +342,7 @@ async function handleSessionStart(input: NormalizedHookInput): Promise<{
     output: {
       continue: true,
       systemMessage:
-        `Memorix is active. Your memories from previous sessions are available via memorix_search.${contextSummary}`,
+        `Previous session context available. Use memorix_search if needed.${contextSummary ? '\n(Top memories pre-loaded below)' + contextSummary : ''}`,
     },
   };
 }

@@ -2629,18 +2629,9 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
       const installedAgents = statuses.filter((s) => s.installed).map((s) => s.agent);
 
       if (installedAgents.length === 0) {
-        console.error('');
-        console.error('🔔 Memorix hooks 未安装');
-        console.error('');
-        console.error('如需安装 hooks，请运行：');
-        console.error('  memorix hooks install');
-        console.error('');
-        console.error('安装后，Memorix 将自动：');
-        console.error('  - 记录编码上下文');
-        console.error('  - 跨 IDE 共享记忆');
-        console.error('');
+        console.error('[memorix] No hooks installed. Run "memorix hooks install" to set up auto-capture.');
       } else {
-        console.error(`✅ Memorix hooks 已安装（${installedAgents.join(', ')}）`);
+        console.error(`[memorix] Hooks active: ${installedAgents.join(', ')}`);
       }
     } catch { /* skip */ }
 
