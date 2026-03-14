@@ -51,21 +51,60 @@ export default defineCommand({
     }
 
     // System directory fallback: IDEs often set cwd to their install dir or System32.
-    // Try user home directory and its immediate subdirectories.
+    // Try: 1) last known project root, 2) home directory scan.
     if (!detected && isSystemDirectory(projectRoot)) {
-      console.error(`[memorix] System directory detected (${projectRoot}), scanning home...`);
-      const home = homedir();
-      detected = detectProject(home);
-      if (detected) {
-        projectRoot = home;
-      } else {
-        const homeSubGit = findGitInSubdirs(home);
-        if (homeSubGit) {
-          console.error(`[memorix] Found .git in home subdirectory: ${homeSubGit}`);
-          projectRoot = homeSubGit;
-          detected = detectProject(homeSubGit);
+      console.error(`[memorix] ⚠️ System directory detected: ${projectRoot}`);
+      console.error(`[memorix] Your IDE launched memorix from a non-workspace directory.`);
+      console.error(`[memorix] Fix: add --cwd to your MCP config, e.g. args: ["serve", "--cwd", "/path/to/project"]`);
+
+      // Try last known project root first (persisted from previous successful detection)
+      const { existsSync, readFileSync } = await import('node:fs');
+      const path = await import('node:path');
+      const lastRootFile = path.join(homedir(), '.memorix', 'last-project-root');
+      if (existsSync(lastRootFile)) {
+        try {
+          const lastRoot = readFileSync(lastRootFile, 'utf-8').trim();
+          if (lastRoot && existsSync(lastRoot)) {
+            detected = detectProject(lastRoot);
+            if (detected) {
+              console.error(`[memorix] Restored last known project: ${lastRoot}`);
+              projectRoot = lastRoot;
+            }
+          }
+        } catch { /* ignore read errors */ }
+      }
+
+      // Fall back to home directory scan
+      if (!detected) {
+        const home = homedir();
+        detected = detectProject(home);
+        if (detected) {
+          projectRoot = home;
+        } else {
+          const homeSubGit = findGitInSubdirs(home);
+          if (homeSubGit) {
+            console.error(`[memorix] Found .git in home subdirectory: ${homeSubGit}`);
+            projectRoot = homeSubGit;
+            detected = detectProject(homeSubGit);
+          }
         }
       }
+
+      if (!detected) {
+        console.error(`[memorix] ❌ No git project found. Project will use untracked/ fallback.`);
+        console.error(`[memorix] To fix, add --cwd to your IDE's MCP config pointing to your project root.`);
+      }
+    }
+
+    // Persist successful project root for future system-directory fallback
+    if (detected) {
+      try {
+        const { writeFileSync, mkdirSync } = await import('node:fs');
+        const path = await import('node:path');
+        const memorixDir = path.join(homedir(), '.memorix');
+        mkdirSync(memorixDir, { recursive: true });
+        writeFileSync(path.join(memorixDir, 'last-project-root'), detected.rootPath, 'utf-8');
+      } catch { /* non-critical */ }
     }
 
     // Always register ALL tools BEFORE connecting transport.
