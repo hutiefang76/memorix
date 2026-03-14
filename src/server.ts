@@ -136,6 +136,7 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
   graphManager: KnowledgeGraphManager;
   projectId: string;
   deferredInit: () => Promise<void>;
+  switchProject: (newCwd: string) => Promise<boolean>;
 }> {
   // Detect current project — strict .git-based detection
   const detectedProject = detectProject(cwd);
@@ -160,20 +161,20 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     }
   } catch { /* migration is optional */ }
 
-  const projectDir = await getProjectDataDir(rawProject.id);
+  let projectDir = await getProjectDataDir(rawProject.id);
 
   // Register alias and resolve to canonical project ID.
   // This ensures the same physical project always uses the same ID
   // regardless of which IDE or detection method discovered it.
   initAliasRegistry(projectDir);
   const canonicalId = await registerAlias(rawProject);
-  const project = { ...rawProject, id: canonicalId };
+  let project = { ...rawProject, id: canonicalId };
   if (canonicalId !== rawProject.id) {
     console.error(`[memorix] Alias resolved: ${rawProject.id} → ${canonicalId}`);
   }
 
   // Initialize components
-  const graphManager = new KnowledgeGraphManager(projectDir);
+  let graphManager = new KnowledgeGraphManager(projectDir);
   await graphManager.init();
   await initObservations(projectDir);
 
@@ -2832,5 +2833,32 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
     }
   };
 
-  return { server, graphManager, projectId: project.id, deferredInit };
+  // Runtime project switch — called when MCP roots change or new workspace detected.
+  // Updates all mutable state; tool closures automatically pick up new values.
+  const switchProject = async (newCwd: string): Promise<boolean> => {
+    const newDetected = detectProject(newCwd);
+    if (!newDetected) return false; // no .git found at new path
+
+    const newCanonicalId = await registerAlias(newDetected);
+    if (newCanonicalId === project.id) return false; // same project, no-op
+
+    console.error(`[memorix] Switching project: ${project.id} → ${newCanonicalId}`);
+
+    // Update mutable state — all tool closures reference these by closure
+    const newProjectDir = await getProjectDataDir(newCanonicalId);
+    project = { ...newDetected, id: newCanonicalId };
+    projectDir = newProjectDir;
+
+    // Re-initialize stores
+    graphManager = new KnowledgeGraphManager(projectDir);
+    await graphManager.init();
+    await initObservations(projectDir);
+    await reindexObservations();
+
+    console.error(`[memorix] Project switched to: ${project.id} (${project.name})`);
+    console.error(`[memorix] Data dir: ${projectDir}`);
+    return true;
+  };
+
+  return { server, graphManager, projectId: project.id, deferredInit, switchProject };
 }
