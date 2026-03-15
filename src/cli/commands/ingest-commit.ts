@@ -38,6 +38,27 @@ export default defineCommand({
     try {
       const { getCommitInfo, ingestCommit } = await import('../../git/extractor.js');
       const commit = getCommitInfo(cwd, ref);
+
+      // Noise filter: skip low-value commits (typo, format, lockfile, merge, etc.)
+      const { shouldFilterCommit } = await import('../../git/noise-filter.js');
+      const { getGitConfig } = await import('../../config.js');
+      const gitCfg = getGitConfig();
+      const filterResult = shouldFilterCommit(commit, {
+        skipMergeCommits: gitCfg.skipMergeCommits,
+        excludePatterns: gitCfg.excludePatterns,
+        noiseKeywords: gitCfg.noiseKeywords,
+      });
+      if (filterResult.skip) {
+        if (auto) {
+          console.error(`[memorix] Skipped ${commit.shortHash}: ${filterResult.reason}`);
+          process.exit(0);
+        } else {
+          p.log.warn(`Commit ${commit.shortHash} filtered as noise: ${filterResult.reason}`);
+          p.outro('Use --force to override noise filter (not yet implemented).');
+        }
+        return;
+      }
+
       const result = ingestCommit(commit);
 
       // Store via memorix_store logic

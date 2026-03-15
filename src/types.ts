@@ -121,6 +121,10 @@ export interface Observation {
   source?: 'agent' | 'git' | 'manual';
   /** Git commit hash if source is 'git' */
   commitHash?: string;
+  /** Related commit hashes — links reasoning memories to the commits they explain */
+  relatedCommits?: string[];
+  /** Related entity names — explicit cross-references to other memory entities */
+  relatedEntities?: string[];
 }
 
 // ============================================================

@@ -283,6 +283,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         title: doc.title,
         tokens: doc.tokens,
         score: (hit.score ?? 1) * recencyBoost,
+        source: (doc.source || 'agent') as 'agent' | 'git' | 'manual',
       };
     });
 
@@ -293,6 +294,19 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       ...entry,
       score: applyIntentBoost(entry.score, entry.type, intentResult),
     }));
+  }
+
+  // ── Source-Aware Retrieval ─────────────────────────────────────
+  // Boost scores based on memory source matching query intent.
+  // e.g., "what changed" queries boost git-derived memories,
+  //        "why" queries boost agent-authored reasoning memories.
+  if (intentResult && intentResult.confidence > 0.3 && intentResult.sourceBoosts) {
+    const srcBoosts = intentResult.sourceBoosts;
+    intermediate = intermediate.map(entry => {
+      const boost = srcBoosts[entry.source] ?? 1.0;
+      const effectiveBoost = 1 + (boost - 1) * intentResult.confidence;
+      return { ...entry, score: entry.score * effectiveBoost };
+    });
   }
 
   // Re-sort: chronological for WHEN queries, relevance for others

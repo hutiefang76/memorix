@@ -31,20 +31,43 @@ export default defineCommand({
 
     try {
       const { getRecentCommits, ingestCommit } = await import('../../git/extractor.js');
-      const commits = getRecentCommits(cwd, count);
+      const rawCommits = getRecentCommits(cwd, count);
+
+      if (rawCommits.length === 0) {
+        console.log('No commits found.');
+        p.outro('Nothing to ingest.');
+        return;
+      }
+
+      // Apply noise filter
+      const { filterCommits } = await import('../../git/noise-filter.js');
+      const { getGitConfig } = await import('../../config.js');
+      const gitCfg = getGitConfig();
+      const { kept: commits, skipped: noiseCommits } = filterCommits(rawCommits, {
+        skipMergeCommits: gitCfg.skipMergeCommits,
+        excludePatterns: gitCfg.excludePatterns,
+        noiseKeywords: gitCfg.noiseKeywords,
+      });
 
       if (commits.length === 0) {
-        console.log('No commits found.');
+        console.log(`All ${rawCommits.length} commits filtered as noise.`);
         p.outro('Nothing to ingest.');
         return;
       }
 
       // Show commits
       console.log('');
-      console.log(`Found ${commits.length} commits:`);
+      console.log(`Found ${rawCommits.length} commits (${noiseCommits.length} filtered as noise):`);
       console.log('');
       for (const commit of commits) {
         console.log(`  ${commit.shortHash} ${commit.subject}`);
+      }
+      if (noiseCommits.length > 0) {
+        console.log('');
+        console.log(`  Filtered (noise):`);
+        for (const { commit, reason } of noiseCommits) {
+          console.log(`  ⏭️ ${commit.shortHash} ${commit.subject} — ${reason}`);
+        }
       }
       console.log('');
 

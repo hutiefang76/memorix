@@ -284,9 +284,11 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
           status: z.enum(['in-progress', 'completed', 'blocked']).describe('Current status'),
           completion: z.number().optional().describe('Completion percentage 0-100'),
         }).optional().describe('Progress tracking for task/feature observations'),
+        relatedCommits: z.array(z.string()).optional().describe('Git commit hashes this memory relates to (links ground truth ↔ reasoning)'),
+        relatedEntities: z.array(z.string()).optional().describe('Other entity names this memory cross-references'),
       },
     },
-    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress }) => {
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities }) => {
       // Mutable copies — Formation Pipeline may improve these
       let entityName = rawEntityName;
       let type = rawType;
@@ -588,6 +590,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         topicKey,
         sessionId,
         progress: progress as import('./types.js').ProgressInfo | undefined,
+        relatedCommits,
+        relatedEntities,
       });
 
       // Add a reference to the entity's observations
@@ -944,9 +948,11 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         risks: z.array(z.string()).optional().describe('Known risks or potential downsides'),
         concepts: z.array(z.string()).optional().describe('Related technical concepts'),
         filesModified: z.array(z.string()).optional().describe('Files related to this reasoning'),
+        relatedCommits: z.array(z.string()).optional().describe('Git commit hashes this reasoning explains (links ground truth ↔ reasoning)'),
+        relatedEntities: z.array(z.string()).optional().describe('Other entity names this reasoning relates to (cross-references)'),
       },
     },
-    async ({ entityName, decision, alternatives, rationale, constraints, expectedOutcome, risks, concepts, filesModified }) => {
+    async ({ entityName, decision, alternatives, rationale, constraints, expectedOutcome, risks, concepts, filesModified, relatedCommits, relatedEntities }) => {
       // Build structured narrative from reasoning fields
       const narrativeParts: string[] = [rationale];
       if (alternatives && alternatives.length > 0) {
@@ -982,6 +988,8 @@ export async function createMemorixServer(cwd?: string, existingServer?: McpServ
         filesModified: filesModified ?? [],
         projectId: project.id,
         source: 'agent',
+        relatedCommits,
+        relatedEntities,
       });
 
       await graphManager.addObservations([

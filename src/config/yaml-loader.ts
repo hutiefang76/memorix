@@ -51,6 +51,8 @@ export interface MemorixYamlConfig {
     skipMergeCommits?: boolean;
     /** File patterns to exclude from git memory (glob) */
     excludePatterns?: string[];
+    /** Additional commit message patterns to treat as noise (regex strings) */
+    noiseKeywords?: string[];
   };
 
   /** Behavior settings */

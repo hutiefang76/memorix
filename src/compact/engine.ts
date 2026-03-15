@@ -11,7 +11,7 @@
 
 import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument } from '../types.js';
 import { searchObservations, getTimeline } from '../store/orama-store.js';
-import { getObservation } from '../memory/observations.js';
+import { getObservation, getAllObservations } from '../memory/observations.js';
 import { formatIndexTable, formatTimeline, formatObservationDetail } from './index-format.js';
 import { countTextTokens } from './token-budget.js';
 
@@ -93,13 +93,78 @@ export async function compactDetail(
         accessCount: 0,
         lastAccessedAt: '',
         status: obs.status ?? 'active',
+        source: obs.source ?? 'agent',
       });
     }
   }
 
-  const formattedParts = documents.map((doc: MemorixDocument) =>
-    formatObservationDetail(doc),
-  );
+  // Build cross-reference map for all requested observations
+  const allObs = getAllObservations();
+  const crossRefMap = new Map<number, string[]>();
+  for (const id of ids) {
+    const obs = getObservation(id);
+    if (!obs) continue;
+    const refs: string[] = [];
+
+    // Source badge
+    if (obs.source === 'git' && obs.commitHash) {
+      refs.push(`Source: git commit ${obs.commitHash.substring(0, 7)}`);
+    } else if (obs.source) {
+      refs.push(`Source: ${obs.source}`);
+    }
+
+    // Explicit relatedCommits
+    if (obs.relatedCommits && obs.relatedCommits.length > 0) {
+      refs.push(`Related commits: ${obs.relatedCommits.map(h => h.substring(0, 7)).join(', ')}`);
+      // Auto-find git memories for those commits
+      const gitMems = allObs.filter(o => o.source === 'git' && o.commitHash && obs.relatedCommits!.includes(o.commitHash));
+      for (const gm of gitMems) {
+        refs.push(`  → #${gm.id} 🟢 ${gm.title}`);
+      }
+    }
+
+    // Explicit relatedEntities
+    if (obs.relatedEntities && obs.relatedEntities.length > 0) {
+      refs.push(`Related entities: ${obs.relatedEntities.join(', ')}`);
+    }
+
+    // Auto cross-reference: if this is a git memory, find reasoning memories for same entity
+    if (obs.source === 'git') {
+      const reasoning = allObs.filter(o =>
+        o.type === 'reasoning' && o.entityName === obs.entityName && o.id !== obs.id && o.status !== 'archived',
+      ).slice(0, 3);
+      if (reasoning.length > 0) {
+        refs.push('Related reasoning:');
+        for (const r of reasoning) {
+          refs.push(`  → #${r.id} 🧠 ${r.title}`);
+        }
+      }
+    }
+
+    // Auto cross-reference: if this is a reasoning memory, find git memories for same entity
+    if (obs.type === 'reasoning') {
+      const gitMems = allObs.filter(o =>
+        o.source === 'git' && o.entityName === obs.entityName && o.id !== obs.id && o.status !== 'archived',
+      ).slice(0, 3);
+      if (gitMems.length > 0) {
+        refs.push('Related commits:');
+        for (const g of gitMems) {
+          refs.push(`  → #${g.id} 🟢 ${g.title}`);
+        }
+      }
+    }
+
+    if (refs.length > 0) crossRefMap.set(obs.id, refs);
+  }
+
+  const formattedParts = documents.map((doc: MemorixDocument) => {
+    let detail = formatObservationDetail(doc);
+    const refs = crossRefMap.get(doc.observationId);
+    if (refs && refs.length > 0) {
+      detail += '\n\nCross-references:\n' + refs.join('\n');
+    }
+    return detail;
+  });
 
   const formatted = formattedParts.join('\n\n' + '═'.repeat(50) + '\n\n');
   const totalTokens = countTextTokens(formatted);

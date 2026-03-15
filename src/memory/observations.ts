@@ -55,6 +55,8 @@ export async function storeObservation(input: {
   progress?: ProgressInfo;
   source?: 'agent' | 'git' | 'manual';
   commitHash?: string;
+  relatedCommits?: string[];
+  relatedEntities?: string[];
 }): Promise<{ observation: Observation; upserted: boolean }> {
   const now = new Date().toISOString();
 
@@ -116,6 +118,8 @@ export async function storeObservation(input: {
     progress: input.progress,
     source: input.source,
     commitHash: input.commitHash,
+    relatedCommits: input.relatedCommits,
+    relatedEntities: input.relatedEntities,
   };
 
   observations.push(observation);

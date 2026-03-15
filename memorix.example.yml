@@ -36,9 +36,12 @@ git:
   ingestOnCommit: true      # Ingest HEAD commit via post-commit hook
   maxDiffSize: 500          # Max diff chars included in memory
   skipMergeCommits: true    # Skip merge commits (usually noise)
-  # excludePatterns:        # Glob patterns to exclude
+  # excludePatterns:        # File glob patterns — commits touching ONLY these are skipped
   #   - "*.lock"
   #   - "dist/**"
+  # noiseKeywords:          # Regex patterns — commits matching these subjects are skipped
+  #   - "^BOT:"             # Skip bot-generated commits
+  #   - "auto-deploy"       # Skip CI deploy commits
 
 # ── Behavior Settings ────────────────────────────────────────
 behavior:

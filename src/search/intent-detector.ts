@@ -25,6 +25,8 @@ export interface IntentResult {
   fieldBoosts?: Record<string, number>;
   /** Whether to prefer chronological ordering over relevance */
   preferChronological: boolean;
+  /** Source → boost multiplier for source-aware retrieval */
+  sourceBoosts?: Partial<Record<'agent' | 'git' | 'manual', number>>;
 }
 
 // ─── Intent Patterns ───
@@ -168,6 +170,33 @@ const INTENT_TYPE_BOOSTS: Record<QueryIntent, Partial<Record<ObservationType, nu
   },
 };
 
+// ─── Source Boost Maps ───
+// Maps intent to preferred memory sources for source-aware retrieval.
+// git source = ground truth (commits), agent source = reasoning/decisions.
+
+const INTENT_SOURCE_BOOSTS: Partial<Record<QueryIntent, Partial<Record<'agent' | 'git' | 'manual', number>>>> = {
+  what_changed: {
+    git: 2.0,      // "what changed" → prefer commit-derived ground truth
+    agent: 0.8,
+  },
+  when: {
+    git: 1.8,      // Temporal queries → git has precise timestamps
+    agent: 1.0,
+  },
+  why: {
+    agent: 2.0,    // "why" → prefer reasoning/decision memories
+    git: 0.7,      // commits rarely explain WHY
+  },
+  how: {
+    agent: 1.5,    // "how" → prefer explanations
+    git: 1.0,
+  },
+  problem: {
+    git: 1.5,      // Bug fixes often in commit history
+    agent: 1.5,    // But also in problem-solution memories
+  },
+};
+
 const INTENT_FIELD_BOOSTS: Partial<Record<QueryIntent, Record<string, number>>> = {
   why: {
     title: 2,
@@ -234,6 +263,7 @@ export function detectQueryIntent(query: string): IntentResult {
     confidence,
     typeBoosts: INTENT_TYPE_BOOSTS[bestIntent],
     fieldBoosts: INTENT_FIELD_BOOSTS[bestIntent],
+    sourceBoosts: INTENT_SOURCE_BOOSTS[bestIntent],
     preferChronological: bestIntent === 'when',
   };
 }
