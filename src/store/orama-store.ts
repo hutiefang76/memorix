@@ -46,6 +46,7 @@ export async function getDb(): Promise<AnyOrama> {
     accessCount: 'number' as const,
     lastAccessedAt: 'string' as const,
     status: 'string' as const,
+    source: 'string' as const,
   };
 
   // Dynamic vector dimensions based on provider (384 for local, 1024+ for API)

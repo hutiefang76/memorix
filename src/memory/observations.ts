@@ -53,6 +53,8 @@ export async function storeObservation(input: {
   topicKey?: string;
   sessionId?: string;
   progress?: ProgressInfo;
+  source?: 'agent' | 'git' | 'manual';
+  commitHash?: string;
 }): Promise<{ observation: Observation; upserted: boolean }> {
   const now = new Date().toISOString();
 
@@ -112,6 +114,8 @@ export async function storeObservation(input: {
     sessionId: input.sessionId,
     status: 'active',
     progress: input.progress,
+    source: input.source,
+    commitHash: input.commitHash,
   };
 
   observations.push(observation);
@@ -133,6 +137,7 @@ export async function storeObservation(input: {
     accessCount: 0,
     lastAccessedAt: '',
     status: 'active',
+    source: input.source ?? 'agent',
   };
 
   await insertObservation(doc);
@@ -250,6 +255,7 @@ async function upsertObservation(
     accessCount: 0,
     lastAccessedAt: '',
     status: 'active',
+    source: existing.source ?? 'agent',
   };
 
   // Remove old doc and insert updated one
@@ -346,6 +352,7 @@ export async function resolveObservations(
         accessCount: 0,
         lastAccessedAt: '',
         status,
+        source: obs.source ?? 'agent',
       };
       await insertObservation(doc);
       // Async embedding update (fire-and-forget)
@@ -509,6 +516,7 @@ export async function reindexObservations(): Promise<number> {
         accessCount: 0,
         lastAccessedAt: '',
         status: obs.status ?? 'active',
+        source: obs.source ?? 'agent',
         ...(embedding ? { embedding } : {}),
       };
       await insertObservation(doc);

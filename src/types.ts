@@ -114,6 +114,10 @@ export interface Observation {
   supersededBy?: number;
   /** Progress tracking for task/feature observations */
   progress?: ProgressInfo;
+  /** Origin of this observation: agent (IDE hooks/MCP), git (commit ingest), manual (CLI) */
+  source?: 'agent' | 'git' | 'manual';
+  /** Git commit hash if source is 'git' */
+  commitHash?: string;
 }
 
 // ============================================================
@@ -204,6 +208,8 @@ export interface MemorixDocument {
   lastAccessedAt: string;
   /** Lifecycle status: active, resolved, archived */
   status: string;
+  /** Origin: agent, git, manual */
+  source: string;
 }
 
 // ============================================================

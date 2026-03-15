@@ -19,6 +19,11 @@ export default defineCommand({
       description: 'Commit ref (default: HEAD)',
       required: false,
     },
+    auto: {
+      type: 'boolean',
+      description: 'Non-interactive mode (used by git post-commit hook)',
+      required: false,
+    },
   },
   run: async ({ args }) => {
     const os = await import('node:os');
@@ -26,55 +31,65 @@ export default defineCommand({
     try { cwd = process.cwd(); } catch { cwd = os.homedir(); }
 
     const ref = args.ref || 'HEAD';
+    const auto = !!args.auto;
 
-    p.intro(`Ingest commit: ${ref}`);
+    if (!auto) p.intro(`Ingest commit: ${ref}`);
 
     try {
       const { getCommitInfo, ingestCommit } = await import('../../git/extractor.js');
       const commit = getCommitInfo(cwd, ref);
       const result = ingestCommit(commit);
 
-      // Show what will be stored
-      console.log('');
-      console.log(`Commit: ${commit.shortHash} — ${commit.subject}`);
-      console.log(`Author: ${commit.author} @ ${commit.date}`);
-      console.log(`Files:  ${commit.filesChanged.length} changed (+${commit.insertions}/-${commit.deletions})`);
-      console.log('');
-      console.log(`Entity: ${result.entityName}`);
-      console.log(`Type:   ${result.type}`);
-      console.log(`Title:  ${result.title}`);
-      console.log('');
-      console.log('Facts:');
-      for (const fact of result.facts) {
-        console.log(`  - ${fact}`);
-      }
-      if (result.concepts.length > 0) {
-        console.log(`Concepts: ${result.concepts.join(', ')}`);
-      }
-      console.log('');
-
-      // Confirm
-      const confirmed = await p.confirm({
-        message: 'Store this commit as memory?',
-      });
-
-      if (p.isCancel(confirmed) || !confirmed) {
-        p.outro('Ingest cancelled.');
-        return;
-      }
-
       // Store via memorix_store logic
       const { initObservations, storeObservation } = await import('../../memory/observations.js');
-      const { getProjectDataDir } = await import('../../store/persistence.js');
+      const { getProjectDataDir, loadObservationsJson } = await import('../../store/persistence.js');
       const { detectProject } = await import('../../project/detector.js');
 
       const project = detectProject(cwd);
       if (!project) {
-        p.log.error('No .git found — not a project directory.');
+        if (!auto) p.log.error('No .git found — not a project directory.');
         return;
       }
       const dataDir = await getProjectDataDir(project.id);
       await initObservations(dataDir);
+
+      // Dedup: skip if this commit hash was already ingested
+      const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
+      if (existingObs.some(o => o.commitHash === commit.hash)) {
+        if (!auto) p.log.warn(`Commit ${commit.shortHash} already ingested. Skipping.`);
+        if (auto) process.exit(0);
+        return;
+      }
+
+      if (!auto) {
+        // Interactive: show details and confirm
+        console.log('');
+        console.log(`Commit: ${commit.shortHash} — ${commit.subject}`);
+        console.log(`Author: ${commit.author} @ ${commit.date}`);
+        console.log(`Files:  ${commit.filesChanged.length} changed (+${commit.insertions}/-${commit.deletions})`);
+        console.log('');
+        console.log(`Entity: ${result.entityName}`);
+        console.log(`Type:   ${result.type}`);
+        console.log(`Title:  ${result.title}`);
+        console.log('');
+        console.log('Facts:');
+        for (const fact of result.facts) {
+          console.log(`  - ${fact}`);
+        }
+        if (result.concepts.length > 0) {
+          console.log(`Concepts: ${result.concepts.join(', ')}`);
+        }
+        console.log('');
+
+        const confirmed = await p.confirm({
+          message: 'Store this commit as memory?',
+        });
+
+        if (p.isCancel(confirmed) || !confirmed) {
+          p.outro('Ingest cancelled.');
+          return;
+        }
+      }
 
       await storeObservation({
         entityName: result.entityName,
@@ -85,12 +100,24 @@ export default defineCommand({
         concepts: result.concepts,
         filesModified: result.filesModified,
         projectId: project.id,
+        source: 'git',
+        commitHash: commit.hash,
       });
 
-      p.outro(`Memory stored from commit ${commit.shortHash}.`);
+      if (auto) {
+        console.error(`[memorix] Git memory: ${commit.shortHash} — ${commit.subject}`);
+        process.exit(0);
+      } else {
+        p.outro(`Memory stored from commit ${commit.shortHash}.`);
+      }
     } catch (err) {
-      console.error(`Failed to ingest commit: ${err}`);
-      p.outro('Ingest failed. Make sure you are in a git repository.');
+      if (auto) {
+        console.error(`[memorix] Git hook ingest failed: ${err}`);
+        process.exit(1);
+      } else {
+        console.error(`Failed to ingest commit: ${err}`);
+        p.outro('Ingest failed. Make sure you are in a git repository.');
+      }
     }
   },
 });

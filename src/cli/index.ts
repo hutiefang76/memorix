@@ -176,6 +176,8 @@ async function runIngestMenu(): Promise<void> {
     options: [
       { value: 'commit', label: 'Ingest commit', hint: 'single commit → memory' },
       { value: 'log', label: 'Ingest log', hint: 'batch recent commits → memories' },
+      { value: 'git-hook', label: 'Install git hook', hint: 'auto-capture on every commit' },
+      { value: 'git-hook-uninstall', label: 'Uninstall git hook', hint: 'remove auto-capture' },
       { value: 'back', label: '← Back', hint: 'return to main menu' },
     ],
   });
@@ -190,6 +192,16 @@ async function runIngestMenu(): Promise<void> {
     }
     case 'log': {
       const m = await import('./commands/ingest-log.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'git-hook': {
+      const m = await import('./commands/git-hook-install.js');
+      await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
+    case 'git-hook-uninstall': {
+      const m = await import('./commands/git-hook-uninstall.js');
       await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
       break;
     }
@@ -597,6 +609,8 @@ const main = defineCommand({
     hook: () => import('./commands/hook.js').then(m => m.default),
     hooks: () => import('./commands/hooks.js').then(m => m.default),
     ingest: () => import('./commands/ingest.js').then(m => m.default),
+    'git-hook': () => import('./commands/git-hook-install.js').then(m => m.default),
+    'git-hook-uninstall': () => import('./commands/git-hook-uninstall.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
   },

@@ -86,6 +86,8 @@ export default defineCommand({
             concepts: result.concepts,
             filesModified: result.filesModified,
             projectId: project.id,
+            source: 'git',
+            commitHash: commit.hash,
           });
           stored++;
           console.log(`  ✅ ${commit.shortHash} ${commit.subject}`);
