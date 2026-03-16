@@ -82,9 +82,11 @@ export default defineCommand({
     // Shows WHERE each config value comes from (the key "排错" improvement)
     try {
       const { loadYamlConfig } = await import('../../config/yaml-loader.js');
+      const { loadFileConfig } = await import('../../config.js');
       const { loadDotenv, getLoadedEnvFiles } = await import('../../config/dotenv-loader.js');
       const os = await import('node:os');
       const yml = loadYamlConfig(project.rootPath);
+      const legacy = loadFileConfig();
 
       // Load dotenv for diagnostics
       loadDotenv(project.rootPath);
@@ -104,28 +106,38 @@ export default defineCommand({
       diagLines.push(`  .env (project):        ${existsSync(projectEnv) ? '✅ ' + projectEnv : '— not found'}`);
       diagLines.push(`  .env (user):           ${existsSync(userEnv) ? '✅ ' + userEnv : '— not found'}`);
       diagLines.push(`  config.json (legacy):  ${existsSync(legacyJson) ? '⚠️  ' + legacyJson : '— not found'}`);
+      const loadedEnv = getLoadedEnvFiles();
+      if (loadedEnv.length > 0) {
+        diagLines.push(`  Loaded .env files:     ${loadedEnv.join(', ')}`);
+      }
 
       // Config value provenance
       diagLines.push('');
       diagLines.push('Active config values:');
 
       // LLM
-      const llmProvider = process.env.MEMORIX_LLM_PROVIDER || yml.llm?.provider;
+      const llmProvider = process.env.MEMORIX_LLM_PROVIDER || yml.llm?.provider || legacy.llm?.provider;
       if (llmProvider) {
-        const src = process.env.MEMORIX_LLM_PROVIDER ? 'env' : 'memorix.yml';
+        const src = process.env.MEMORIX_LLM_PROVIDER ? 'env' : yml.llm?.provider ? 'memorix.yml' : 'config.json';
         diagLines.push(`  LLM provider:  ${llmProvider} (← ${src})`);
       }
-      const llmModel = process.env.MEMORIX_LLM_MODEL || yml.llm?.model;
+      const llmModel = process.env.MEMORIX_LLM_MODEL || yml.llm?.model || legacy.llm?.model;
       if (llmModel) {
-        const src = process.env.MEMORIX_LLM_MODEL ? 'env' : 'memorix.yml';
+        const src = process.env.MEMORIX_LLM_MODEL ? 'env' : yml.llm?.model ? 'memorix.yml' : 'config.json';
         diagLines.push(`  LLM model:     ${llmModel} (← ${src})`);
       }
-      const llmKey = process.env.MEMORIX_LLM_API_KEY || process.env.MEMORIX_API_KEY || yml.llm?.apiKey || process.env.OPENAI_API_KEY;
+      const llmKey =
+        process.env.MEMORIX_LLM_API_KEY ||
+        process.env.MEMORIX_API_KEY ||
+        yml.llm?.apiKey ||
+        legacy.llm?.apiKey ||
+        process.env.OPENAI_API_KEY;
       if (llmKey) {
         let src = 'unknown';
         if (process.env.MEMORIX_LLM_API_KEY) src = 'env:MEMORIX_LLM_API_KEY';
         else if (process.env.MEMORIX_API_KEY) src = 'env:MEMORIX_API_KEY';
         else if (yml.llm?.apiKey) src = 'memorix.yml (consider moving to .env)';
+        else if (legacy.llm?.apiKey) src = 'config.json (legacy)';
         else if (process.env.OPENAI_API_KEY) src = 'env:OPENAI_API_KEY';
         diagLines.push(`  LLM API key:   ${'*'.repeat(8)}...${llmKey.slice(-4)} (← ${src})`);
       } else {
@@ -133,8 +145,9 @@ export default defineCommand({
       }
 
       // Embedding
-      const embMode = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || 'off';
-      const embSrc = process.env.MEMORIX_EMBEDDING ? 'env' : yml.embedding?.provider ? 'memorix.yml' : 'default';
+      const embMode = process.env.MEMORIX_EMBEDDING || yml.embedding?.provider || legacy.embedding || 'off';
+      const embSrc =
+        process.env.MEMORIX_EMBEDDING ? 'env' : yml.embedding?.provider ? 'memorix.yml' : legacy.embedding ? 'config.json' : 'default';
       diagLines.push(`  Embedding:     ${embMode} (← ${embSrc})`);
 
       // Git

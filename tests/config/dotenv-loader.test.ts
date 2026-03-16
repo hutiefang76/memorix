@@ -16,20 +16,25 @@ import { tmpdir } from 'node:os';
 import { loadDotenv, resetDotenv, getLoadedEnvFiles } from '../../src/config/dotenv-loader.js';
 
 const TEST_DIR = join(tmpdir(), 'memorix-dotenv-test-' + Date.now());
+const TEST_DIR_B = join(tmpdir(), 'memorix-dotenv-test-b-' + Date.now());
 
 beforeEach(() => {
   resetDotenv();
   mkdirSync(TEST_DIR, { recursive: true });
+  mkdirSync(TEST_DIR_B, { recursive: true });
   // Clean up any test env vars
   delete process.env.MEMORIX_TEST_DOTENV_VAR;
   delete process.env.MEMORIX_TEST_OVERRIDE_VAR;
+  delete process.env.MEMORIX_TEST_SWITCH_VAR;
 });
 
 afterEach(() => {
   resetDotenv();
   delete process.env.MEMORIX_TEST_DOTENV_VAR;
   delete process.env.MEMORIX_TEST_OVERRIDE_VAR;
+  delete process.env.MEMORIX_TEST_SWITCH_VAR;
   try { rmSync(TEST_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+  try { rmSync(TEST_DIR_B, { recursive: true, force: true }); } catch { /* ignore */ }
 });
 
 describe('loadDotenv', () => {
@@ -87,11 +92,32 @@ describe('loadDotenv', () => {
     expect(process.env.MEMORIX_TEST_DOTENV_VAR).toBe('first');
 
     resetDotenv();
-    delete process.env.MEMORIX_TEST_DOTENV_VAR;
-
     writeFileSync(join(TEST_DIR, '.env'), 'MEMORIX_TEST_DOTENV_VAR=second\n');
     loadDotenv(TEST_DIR);
     expect(process.env.MEMORIX_TEST_DOTENV_VAR).toBe('second');
+  });
+
+  it('should not leak project A env vars into project B after reset', () => {
+    writeFileSync(join(TEST_DIR, '.env'), 'MEMORIX_TEST_SWITCH_VAR=from_project_a\n');
+    writeFileSync(join(TEST_DIR_B, '.env'), 'MEMORIX_TEST_SWITCH_VAR=from_project_b\n');
+
+    loadDotenv(TEST_DIR);
+    expect(process.env.MEMORIX_TEST_SWITCH_VAR).toBe('from_project_a');
+
+    resetDotenv();
+    loadDotenv(TEST_DIR_B);
+    expect(process.env.MEMORIX_TEST_SWITCH_VAR).toBe('from_project_b');
+  });
+
+  it('should remove injected env vars when switching to a project without .env', () => {
+    writeFileSync(join(TEST_DIR, '.env'), 'MEMORIX_TEST_SWITCH_VAR=from_project_a\n');
+
+    loadDotenv(TEST_DIR);
+    expect(process.env.MEMORIX_TEST_SWITCH_VAR).toBe('from_project_a');
+
+    resetDotenv();
+    loadDotenv(TEST_DIR_B);
+    expect(process.env.MEMORIX_TEST_SWITCH_VAR).toBeUndefined();
   });
 });
 

@@ -24,6 +24,11 @@ export default defineCommand({
       description: 'Non-interactive mode (used by git post-commit hook)',
       required: false,
     },
+    force: {
+      type: 'boolean',
+      description: 'Bypass Git noise filter and ingest anyway',
+      required: false,
+    },
   },
   run: async ({ args }) => {
     const os = await import('node:os');
@@ -32,6 +37,7 @@ export default defineCommand({
 
     const ref = args.ref || 'HEAD';
     const auto = !!args.auto;
+    const force = !!args.force;
 
     if (!auto) p.intro(`Ingest commit: ${ref}`);
 
@@ -48,13 +54,13 @@ export default defineCommand({
         excludePatterns: gitCfg.excludePatterns,
         noiseKeywords: gitCfg.noiseKeywords,
       });
-      if (filterResult.skip) {
+      if (filterResult.skip && !force) {
         if (auto) {
           console.error(`[memorix] Skipped ${commit.shortHash}: ${filterResult.reason}`);
           process.exit(0);
         } else {
           p.log.warn(`Commit ${commit.shortHash} filtered as noise: ${filterResult.reason}`);
-          p.outro('Use --force to override noise filter (not yet implemented).');
+          p.outro('Use --force to override the noise filter.');
         }
         return;
       }

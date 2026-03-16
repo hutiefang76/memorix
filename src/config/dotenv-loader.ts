@@ -17,10 +17,10 @@
  * Memorix only uses .env for sensitive values. Structured settings stay in YAML.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { config as dotenvConfig, type DotenvConfigOutput } from 'dotenv';
+import { parse } from 'dotenv';
 
 // ─── State ───
 
@@ -29,6 +29,22 @@ let dotenvProjectRoot: string | null = null;
 
 /** Track which .env files were loaded (for diagnostics) */
 const loadedEnvFiles: string[] = [];
+/** Track keys injected by .env so project switches can cleanly restore process.env */
+const injectedKeys = new Set<string>();
+
+function loadEnvFile(filePath: string): void {
+  if (!existsSync(filePath)) return;
+
+  const parsed = parse(readFileSync(filePath, 'utf-8'));
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!(key in process.env)) {
+      process.env[key] = value;
+      injectedKeys.add(key);
+    }
+  }
+
+  loadedEnvFiles.push(filePath);
+}
 
 // ─── Public API ───
 
@@ -48,20 +64,12 @@ export function loadDotenv(projectRoot?: string): void {
 
   // 1. Project-level .env — highest .env priority, load first
   if (projectRoot) {
-    const projectEnvPath = join(projectRoot, '.env');
-    if (existsSync(projectEnvPath)) {
-      const result = dotenvConfig({ path: projectEnvPath, override: false });
-      if (!result.error) loadedEnvFiles.push(projectEnvPath);
-    }
+    loadEnvFile(join(projectRoot, '.env'));
   }
 
   // 2. User-level .env (~/.memorix/.env) — lowest .env priority, load second
   //    (override: false means it only fills in keys not already set)
-  const userEnvPath = join(homedir(), '.memorix', '.env');
-  if (existsSync(userEnvPath)) {
-    const result = dotenvConfig({ path: userEnvPath, override: false });
-    if (!result.error) loadedEnvFiles.push(userEnvPath);
-  }
+  loadEnvFile(join(homedir(), '.memorix', '.env'));
 
   dotenvLoaded = true;
   dotenvProjectRoot = projectRoot ?? null;
@@ -71,6 +79,10 @@ export function loadDotenv(projectRoot?: string): void {
  * Reset dotenv state (for testing or project switch).
  */
 export function resetDotenv(): void {
+  for (const key of injectedKeys) {
+    delete process.env[key];
+  }
+  injectedKeys.clear();
   dotenvLoaded = false;
   dotenvProjectRoot = null;
   loadedEnvFiles.length = 0;
