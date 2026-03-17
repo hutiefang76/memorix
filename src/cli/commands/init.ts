@@ -1,15 +1,22 @@
 /**
  * CLI Command: memorix init
  *
- * Interactive generator for memorix.yml configuration file.
- * Creates a project-level or user-level memorix.yml with guided prompts.
+ * Interactive generator for memorix.yml configuration.
+ * Supports both machine-level defaults and project-level overrides.
  */
 
 import { defineCommand } from 'citty';
 import * as p from '@clack/prompts';
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
-import path from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import path from 'node:path';
+import {
+  getInitScopeDescription,
+  getInitTargetDir,
+  resolveInitScope,
+  shouldOfferDotenv,
+  type InitScope,
+} from './init-shared.js';
 
 export default defineCommand({
   meta: {
@@ -19,23 +26,62 @@ export default defineCommand({
   args: {
     global: {
       type: 'boolean',
-      description: 'Create user-level config (~/.memorix/memorix.yml) instead of project-level',
+      description: 'Create global defaults under ~/.memorix',
+      required: false,
+    },
+    project: {
+      type: 'boolean',
+      description: 'Create project-level overrides in the current repository',
       required: false,
     },
   },
   run: async ({ args }) => {
     p.intro('Initialize Memorix Configuration');
 
-    const isGlobal = !!args.global;
-    const targetDir = isGlobal
-      ? path.join(homedir(), '.memorix')
-      : process.cwd();
-    const targetPath = path.join(targetDir, 'memorix.yml');
+    let selectedScope: InitScope | undefined;
+    if (!args.global && !args.project) {
+      const scope = await p.select({
+        message: 'Where should Memorix start from?',
+        options: [
+          {
+            value: 'global',
+            label: 'Global defaults',
+            hint: 'recommended for solo or multi-project workflows',
+          },
+          {
+            value: 'project',
+            label: 'Project config',
+            hint: 'recommended when this repository needs shared overrides',
+          },
+        ],
+      });
+      if (p.isCancel(scope)) {
+        p.outro('Cancelled.');
+        return;
+      }
+      selectedScope = scope;
+    }
 
-    // Check for existing file
+    let scope: InitScope;
+    try {
+      scope = resolveInitScope(args, selectedScope);
+    } catch (error) {
+      p.log.error(error instanceof Error ? error.message : String(error));
+      p.outro('Cancelled.');
+      return;
+    }
+
+    const isGlobal = scope === 'global';
+    const targetDir = getInitTargetDir(scope, process.cwd(), homedir());
+    const targetPath = path.join(targetDir, 'memorix.yml');
+    const envExamplePath = path.join(targetDir, '.env.example');
+    const envPath = path.join(targetDir, '.env');
+
+    p.log.info(getInitScopeDescription(scope));
+
     if (existsSync(targetPath)) {
       const overwrite = await p.confirm({
-        message: `${targetPath} already exists. Overwrite?`,
+        message: `${targetPath} already exists. Overwrite it?`,
         initialValue: false,
       });
       if (p.isCancel(overwrite) || !overwrite) {
@@ -44,20 +90,21 @@ export default defineCommand({
       }
     }
 
-    // LLM config
     const llmProvider = await p.select({
-      message: 'LLM provider (for smart dedup + fact extraction):',
+      message: 'LLM provider (for smart dedup and fact extraction):',
       options: [
         { value: 'none', label: 'None', hint: 'free heuristic mode' },
         { value: 'openai', label: 'OpenAI', hint: 'gpt-4o-mini' },
         { value: 'anthropic', label: 'Anthropic', hint: 'claude-3-haiku' },
         { value: 'openrouter', label: 'OpenRouter', hint: 'multi-provider' },
-        { value: 'custom', label: 'Custom', hint: 'OpenAI-compatible' },
+        { value: 'custom', label: 'Custom', hint: 'OpenAI-compatible endpoint' },
       ],
     });
-    if (p.isCancel(llmProvider)) { p.outro('Cancelled.'); return; }
+    if (p.isCancel(llmProvider)) {
+      p.outro('Cancelled.');
+      return;
+    }
 
-    // Embedding config
     const embeddingProvider = await p.select({
       message: 'Embedding provider (for semantic search):',
       options: [
@@ -66,47 +113,56 @@ export default defineCommand({
         { value: 'fastembed', label: 'FastEmbed', hint: 'local ONNX' },
       ],
     });
-    if (p.isCancel(embeddingProvider)) { p.outro('Cancelled.'); return; }
+    if (p.isCancel(embeddingProvider)) {
+      p.outro('Cancelled.');
+      return;
+    }
 
-    // Git-Memory config
     const gitAutoHook = await p.confirm({
-      message: 'Auto-install git post-commit hook for memory capture?',
+      message: 'Enable Git post-commit memory capture by default?',
       initialValue: false,
     });
-    if (p.isCancel(gitAutoHook)) { p.outro('Cancelled.'); return; }
+    if (p.isCancel(gitAutoHook)) {
+      p.outro('Cancelled.');
+      return;
+    }
 
-    // Behavior config
     const sessionInject = await p.select({
-      message: 'Session start injection:',
+      message: 'Session start injection mode:',
       options: [
         { value: 'minimal', label: 'Minimal', hint: 'one-line hint (default)' },
-        { value: 'full', label: 'Full', hint: 'inject top 5 memories' },
-        { value: 'silent', label: 'Silent', hint: 'no injection' },
+        { value: 'full', label: 'Full', hint: 'inject top memories' },
+        { value: 'silent', label: 'Silent', hint: 'no automatic injection' },
       ],
     });
-    if (p.isCancel(sessionInject)) { p.outro('Cancelled.'); return; }
+    if (p.isCancel(sessionInject)) {
+      p.outro('Cancelled.');
+      return;
+    }
 
-    // Build YAML content — behavior config ONLY, no secrets
     const lines: string[] = [
-      '# memorix.yml — Memorix Configuration',
+      '# memorix.yml - Memorix configuration',
       '#',
-      '# Behavior settings go here. Secrets (API keys) go in .env',
-      `# Generated by: memorix init${isGlobal ? ' --global' : ''}`,
+      '# Behavior settings live here. Secrets belong in .env',
+      `# Generated by: memorix init${isGlobal ? ' --global' : ' --project'}`,
       `# Date: ${new Date().toISOString().split('T')[0]}`,
       '',
     ];
 
-    // LLM section
     if (llmProvider !== 'none') {
       lines.push('llm:');
       lines.push(`  provider: ${llmProvider === 'custom' ? 'openai' : llmProvider}`);
-      if (llmProvider === 'openai') lines.push('  model: gpt-4o-mini');
-      else if (llmProvider === 'anthropic') lines.push('  model: claude-3-haiku-20240307');
-      if (llmProvider === 'custom') lines.push('  # baseUrl: http://localhost:11434/v1');
+      if (llmProvider === 'openai') {
+        lines.push('  model: gpt-4o-mini');
+      } else if (llmProvider === 'anthropic') {
+        lines.push('  model: claude-3-haiku-20240307');
+      }
+      if (llmProvider === 'custom') {
+        lines.push('  # baseUrl: http://localhost:11434/v1');
+      }
       lines.push('');
     }
 
-    // Embedding section
     lines.push('embedding:');
     lines.push(`  provider: ${embeddingProvider}`);
     if (embeddingProvider === 'api') {
@@ -114,7 +170,6 @@ export default defineCommand({
     }
     lines.push('');
 
-    // Git section
     lines.push('git:');
     lines.push(`  autoHook: ${gitAutoHook}`);
     lines.push('  ingestOnCommit: true');
@@ -125,7 +180,6 @@ export default defineCommand({
     lines.push('  #   - "dist/**"');
     lines.push('');
 
-    // Behavior section
     lines.push('behavior:');
     lines.push(`  sessionInject: ${sessionInject}`);
     lines.push('  syncAdvisory: true');
@@ -133,26 +187,21 @@ export default defineCommand({
     lines.push('  formationMode: active');
     lines.push('');
 
-    // Server section
     lines.push('server:');
     lines.push('  transport: stdio');
     lines.push('  dashboard: true');
     lines.push('  dashboardPort: 3210');
     lines.push('');
 
-    const ymlContent = lines.join('\n');
-
-    // Build .env.example — secrets only
     const envLines: string[] = [
-      '# Memorix Environment Variables',
-      '# Copy this file to .env and fill in your actual values.',
-      '#',
-      '# Secrets go here. Behavior settings go in memorix.yml',
+      '# Memorix environment variables',
+      '# Copy this file to .env and fill in real values.',
+      '# Secrets go here. Behavior settings stay in memorix.yml.',
       '',
     ];
 
     if (llmProvider !== 'none') {
-      envLines.push('# ── LLM API Key ──');
+      envLines.push('# LLM API key');
       if (llmProvider === 'openai' || llmProvider === 'custom') {
         envLines.push('MEMORIX_LLM_API_KEY=sk-your-key-here');
       } else if (llmProvider === 'anthropic') {
@@ -167,58 +216,58 @@ export default defineCommand({
     }
 
     if (embeddingProvider === 'api') {
-      envLines.push('# ── Embedding API Key ──');
-      envLines.push('# Falls back to MEMORIX_LLM_API_KEY if not set');
+      envLines.push('# Embedding API key');
+      envLines.push('# Falls back to MEMORIX_LLM_API_KEY if omitted');
       envLines.push('# MEMORIX_EMBEDDING_API_KEY=sk-your-key-here');
       envLines.push('# MEMORIX_EMBEDDING_BASE_URL=https://api.openai.com/v1');
       envLines.push('');
     }
 
-    envLines.push('# ── Unified Key (optional, fallback for both LLM + Embedding) ──');
+    envLines.push('# Optional unified key');
     envLines.push('# MEMORIX_API_KEY=sk-your-key-here');
     envLines.push('');
-    envLines.push('# ── Compatibility Keys (lowest priority) ──');
+    envLines.push('# Compatibility variables (lowest priority)');
     envLines.push('# OPENAI_API_KEY=sk-...');
     envLines.push('# ANTHROPIC_API_KEY=sk-ant-...');
     envLines.push('# OPENROUTER_API_KEY=sk-or-...');
     envLines.push('');
 
-    const envContent = envLines.join('\n');
-
-    // Write files
     mkdirSync(targetDir, { recursive: true });
-    writeFileSync(targetPath, ymlContent, 'utf-8');
+    writeFileSync(targetPath, lines.join('\n'), 'utf-8');
+    p.log.success(`Created ${targetPath}`);
 
-    // Generate .env.example (and optionally .env)
-    if (!isGlobal) {
-      const envExamplePath = path.join(targetDir, '.env.example');
+    if (shouldOfferDotenv(scope)) {
+      const envContent = envLines.join('\n');
       writeFileSync(envExamplePath, envContent, 'utf-8');
       p.log.success(`Created ${envExamplePath}`);
 
-      // Offer to create .env directly
-      const envPath = path.join(targetDir, '.env');
-      if (!existsSync(envPath)) {
-        const createEnv = await p.confirm({
-          message: 'Create .env from .env.example? (you can fill in keys later)',
+      const createEnv = !existsSync(envPath)
+        ? await p.confirm({
+          message: 'Create .env from .env.example now? (you can fill in keys later)',
           initialValue: true,
-        });
-        if (!p.isCancel(createEnv) && createEnv) {
-          writeFileSync(envPath, envContent, 'utf-8');
-          p.log.success(`Created ${envPath}`);
-          p.log.info('Add .env to your .gitignore to keep secrets out of version control.');
-        }
+        })
+        : false;
+      if (!p.isCancel(createEnv) && createEnv) {
+        writeFileSync(envPath, envContent, 'utf-8');
+        p.log.success(`Created ${envPath}`);
       }
     }
 
-    p.log.success(`Created ${targetPath}`);
     console.log('');
     p.log.info('Two files, two roles:');
-    p.log.info('  memorix.yml  → behavior settings (what Memorix does)');
-    p.log.info('  .env         → secrets only (API keys)');
-    console.log('');
-    if (gitAutoHook) {
-      p.log.info('Git post-commit hook will be auto-installed on next MCP server start.');
+    p.log.info('  memorix.yml -> structured behavior');
+    p.log.info('  .env        -> secrets only');
+    if (isGlobal) {
+      p.log.info('Project-level memorix.yml can override these defaults later.');
+    } else {
+      p.log.info('This project config will override any global defaults on this machine.');
     }
-    p.outro('Done! Restart your MCP server to apply.');
+    if (gitAutoHook) {
+      p.log.info('Git post-commit hook will auto-install on the next MCP server start.');
+    }
+
+    p.outro(isGlobal
+      ? 'Done! Global defaults are ready. Restart your MCP server to apply.'
+      : 'Done! Project overrides are ready. Restart your MCP server to apply.');
   },
 });

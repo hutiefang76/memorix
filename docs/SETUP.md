@@ -5,7 +5,7 @@ Memorix supports two runtime modes:
 - `memorix serve` for stdio MCP integrations
 - `memorix serve-http --port 3211` for HTTP MCP, the dashboard, and collaboration features on one port
 
-For most IDE setups, start with `memorix serve`. If you want the dashboard, Team tools, or a shared HTTP endpoint for multiple agents, use `serve-http`.
+For the smoothest multi-project setup, use `memorix serve-http --port 3211` as the main control plane. Use `memorix serve` when an IDE specifically wants a stdio MCP server process.
 
 ---
 
@@ -17,13 +17,18 @@ Install Memorix globally:
 npm install -g memorix
 ```
 
-Initialize project config:
+Initialize Memorix:
 
 ```bash
 memorix init
 ```
 
-This creates the two-file setup Memorix is built around:
+The init wizard lets you choose between:
+
+- `Global defaults` for personal multi-project workflows
+- `Project config` for repo-specific overrides
+
+Memorix then creates the two-file setup it is built around:
 
 - `memorix.yml` for behavior and project settings
 - `.env` for secrets only
@@ -64,6 +69,16 @@ Recommended when:
 ---
 
 ## 3. MCP Config by Client
+
+If you want Memorix to generate IDE-specific dot files, install them explicitly:
+
+```bash
+memorix integrate cursor
+memorix integrate windsurf
+memorix integrate opencode
+```
+
+This keeps the default experience MCP-first and zero-write until you opt into a specific IDE integration.
 
 ### Claude Code
 

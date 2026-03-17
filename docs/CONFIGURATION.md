@@ -7,6 +7,12 @@ Memorix is designed around one simple idea:
 
 Everything else exists for compatibility or advanced overrides.
 
+The recommended model is:
+
+- keep your day-to-day defaults in `~/.memorix`
+- add project files only when a repo needs overrides
+- let project config override global defaults instead of treating every repo as a fresh setup
+
 ---
 
 ## Two Files, Two Roles
@@ -22,13 +28,13 @@ Use `memorix.yml` for structured project behavior:
 - server and dashboard settings
 - team or hub-mode options
 
-Recommended location:
-
-- project root: `./memorix.yml`
-
-Optional advanced location:
+Default location:
 
 - user defaults: `~/.memorix/memorix.yml`
+
+Optional override location:
+
+- project root: `./memorix.yml`
 
 ### `.env`
 
@@ -38,13 +44,13 @@ Use `.env` for secrets only:
 - base URLs
 - provider tokens
 
-Recommended location:
-
-- project root: `./.env`
-
-Optional advanced location:
+Default location:
 
 - user defaults: `~/.memorix/.env`
+
+Optional override location:
+
+- project root: `./.env`
 
 ---
 
@@ -55,8 +61,8 @@ Optional advanced location:
 For normal configuration values, Memorix resolves in this order:
 
 1. environment variables
-2. project `memorix.yml`
-3. user `~/.memorix/memorix.yml`
+2. project `memorix.yml` overrides
+3. user `~/.memorix/memorix.yml` defaults
 4. legacy `~/.memorix/config.json`
 5. hardcoded defaults
 
@@ -65,14 +71,25 @@ For normal configuration values, Memorix resolves in this order:
 For secrets loaded through dotenv, Memorix resolves in this order:
 
 1. system environment variables from the shell or MCP host config
-2. project `.env`
-3. user `~/.memorix/.env`
+2. project `.env` overrides
+3. user `~/.memorix/.env` defaults
 
 This means host-provided env vars always win.
 
 ---
 
 ## Minimal Example
+
+If you want to initialize these files interactively, run:
+
+```bash
+memorix init
+```
+
+The init wizard now lets you choose between:
+
+- `Global defaults` for personal multi-project workflows
+- `Project config` for repo-specific overrides
 
 `memorix.yml`
 
@@ -215,9 +232,10 @@ For new setups, prefer:
 
 For most teams, keep it simple:
 
-- commit `memorix.yml`
+- keep your personal defaults in `~/.memorix/memorix.yml`
+- commit `memorix.yml` only when the repo needs shared overrides
 - do **not** commit `.env`
-- keep user-level config only for personal defaults
+- reserve project-level config for shared behavior or repo-specific overrides
 
 This gives you:
 

@@ -33,16 +33,18 @@ async function interactiveMenu(): Promise<void> {
       options: [
         { value: 'search', label: 'Search memories', hint: 'find by keyword' },
         { value: 'list', label: 'View recent', hint: 'latest observations' },
-        { value: 'dashboard', label: 'Open Dashboard', hint: 'localhost:3210' },
-        { value: 'hooks', label: 'Install hooks', hint: 'auto-capture for IDEs' },
+        { value: 'serve-http', label: 'Start control plane', hint: 'HTTP MCP + dashboard on 3211' },
+        { value: 'dashboard', label: 'Open standalone dashboard', hint: 'local read-only view' },
+        { value: 'integrate', label: 'Integrate an IDE', hint: 'opt-in dot files for one agent' },
+        { value: 'hooks', label: 'Legacy hooks menu', hint: 'compatibility install path' },
         { value: 'status', label: 'Project status', hint: 'info + stats' },
         { value: 'cleanup', label: 'Clean up', hint: 'remove old memories' },
         { value: 'ingest', label: 'Ingest from Git', hint: 'commit → memory' },
         { value: 'audit', label: 'Audit trail', hint: 'Memorix-written files' },
         { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
-        { value: 'init', label: 'Init memorix.yml', hint: 'generate config file' },
+        { value: 'init', label: 'Init config', hint: 'choose global defaults or project override' },
         { value: 'configure', label: 'Configure', hint: 'LLM + embedding settings' },
-        { value: 'serve', label: 'Start MCP server', hint: 'for IDE integration' },
+        { value: 'serve', label: 'Start MCP server', hint: 'stdio for IDE integration' },
         { value: 'exit', label: 'Exit', hint: 'quit memorix' },
       ],
     });
@@ -70,6 +72,15 @@ async function interactiveMenu(): Promise<void> {
       case 'dashboard':
         await runCommand('dashboard');
         return; // Dashboard is blocking, exit after
+      case 'serve-http':
+        p.log.info('Starting Memorix control plane on http://localhost:3211 ...');
+        await runCommand('serve-http');
+        return; // Blocking action, exit after
+      case 'integrate': {
+        const m = await import('./commands/integrate.js');
+        await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+        break;
+      }
       case 'hooks':
         await runHooksMenu();
         break;
@@ -110,7 +121,7 @@ async function runHooksMenu(): Promise<void> {
   const action = await p.select({
     message: 'Hooks management:',
     options: [
-      { value: 'install', label: 'Install hooks', hint: 'set up auto-capture' },
+      { value: 'install', label: 'Install hooks', hint: 'legacy compatibility path' },
       { value: 'preview', label: 'Preview installation', hint: 'show files to be created' },
       { value: 'uninstall', label: 'Uninstall hooks', hint: 'remove from all agents' },
       { value: 'status', label: 'Status', hint: 'show installed hooks' },
@@ -584,6 +595,11 @@ async function runCommand(cmd: string, _args: string[] = []): Promise<void> {
       await m.default.run?.({ args: { _: [], dry: false, force: false }, rawArgs: [], cmd: m.default } as any);
       break;
     }
+    case 'serve-http': {
+      const m = await import('./commands/serve-http.js');
+      await m.default.run?.({ args: { _: [], port: 3211 }, rawArgs: [], cmd: m.default } as any);
+      break;
+    }
     case 'sync': {
       const m = await import('./commands/sync.js');
       await m.default.run?.({ args: { _: [], dry: false }, rawArgs: [], cmd: m.default } as any);
@@ -605,10 +621,11 @@ const main = defineCommand({
   meta: {
     name: 'memorix',
     version: pkg.version,
-    description: 'Cross-Agent Memory Bridge — Universal memory layer for AI coding agents via MCP',
+    description: 'Local-first memory control plane for AI coding agents via MCP',
   },
   subCommands: {
     init: () => import('./commands/init.js').then(m => m.default),
+    integrate: () => import('./commands/integrate.js').then(m => m.default),
     serve: () => import('./commands/serve.js').then(m => m.default),
     'serve-http': () => import('./commands/serve-http.js').then(m => m.default),
     status: () => import('./commands/status.js').then(m => m.default),
@@ -627,13 +644,16 @@ const main = defineCommand({
       await interactiveMenu();
     } else {
       // Non-interactive mode: show usage hint
-      console.error(`Memorix v${pkg.version} — Cross-Agent Memory Bridge\n`);
+      console.error(`Memorix v${pkg.version} — Local-first memory control plane\n`);
       console.error('Usage: memorix <command>\n');
       console.error('Commands:');
-      console.error('  serve      Start MCP Server on stdio');
+      console.error('  serve-http Start HTTP MCP + dashboard control plane');
+      console.error('  serve      Start MCP server on stdio');
+      console.error('  init       Create global defaults or project config');
+      console.error('  integrate  Install one IDE integration into the current repo');
       console.error('  status     Show project info + stats');
-      console.error('  dashboard  Open Web Dashboard');
-      console.error('  hooks      Install hooks for IDEs');
+      console.error('  dashboard  Open standalone dashboard (read-mostly)');
+      console.error('  hooks      Open legacy hook installer menu');
       console.error('  cleanup    Remove old memories');
       console.error('  sync       Cross-agent rule sync');
       console.error('\nRun `memorix` in an interactive terminal for guided menu.');
