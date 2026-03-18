@@ -159,6 +159,7 @@ export interface SharedTeamInstances {
 
 export interface CreateMemorixServerOptions {
   allowUntrackedFallback?: boolean;
+  deferProjectInitUntilBound?: boolean;
 }
 
 export async function createMemorixServer(
@@ -176,6 +177,7 @@ export async function createMemorixServer(
 }> {
   // Detect current project — strict .git-based detection
   const allowUntrackedFallback = options.allowUntrackedFallback ?? true;
+  const deferProjectInitUntilBound = options.deferProjectInitUntilBound ?? false;
   const detectedProject = detectProject(cwd);
   let rawProject: import('./types.js').ProjectInfo;
   let projectResolved = true;
@@ -193,9 +195,9 @@ export async function createMemorixServer(
     rawProject = allowUntrackedFallback
       ? { id: `untracked/${name}`, name, rootPath: basePath }
       : { id: '__unresolved__', name, rootPath: basePath };
-    if (!allowUntrackedFallback) {
+    if (!allowUntrackedFallback && !deferProjectInitUntilBound) {
       console.error(`[memorix] WARNING: ${projectResolutionError}`);
-    } else {
+    } else if (allowUntrackedFallback) {
       console.error(`[memorix] WARNING: No .git found in "${basePath}" - project isolation degraded`);
       console.error(`[memorix] Run "git init" in your project for proper isolation.`);
     }
@@ -239,6 +241,35 @@ export async function createMemorixServer(
   await graphManager.init();
   await initObservations(projectDir);
 
+  const lightweightUnresolvedSession = !projectResolved && deferProjectInitUntilBound;
+
+  const initializeProjectRuntime = async (logPrefix: 'startup' | 'switch'): Promise<void> => {
+    graphManager = new KnowledgeGraphManager(projectDir);
+    await graphManager.init();
+    await initObservations(projectDir);
+
+    const reindexed = await reindexObservations();
+    if (reindexed > 0) {
+      console.error(`[memorix] Reindexed ${reindexed} observations for project: ${project.id}`);
+    }
+
+    const llmConfig = initLLM();
+    if (llmConfig) {
+      console.error(`[memorix] LLM enhanced mode: ${llmConfig.provider}/${llmConfig.model}`);
+    } else {
+      console.error(`[memorix] LLM mode: off (set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable)`);
+    }
+
+    if (logPrefix === 'startup') {
+      console.error(`[memorix] Project: ${project.id} (${project.name})`);
+      console.error(`[memorix] Data dir: ${projectDir}`);
+    } else {
+      console.error(`[memorix] Project switched to: ${project.id} (${project.name})`);
+      console.error(`[memorix] Data dir: ${projectDir}`);
+    }
+  };
+
+  if (!lightweightUnresolvedSession) {
   // Auto-merge obvious alias groups by scanning observed projectIds in data.
   // This detects splits like local/foo + user/foo (legacy data migration)
   try {
@@ -271,22 +302,10 @@ export async function createMemorixServer(
     }
   } catch { /* migration is optional */ }
 
-  // Reindex existing observations into Orama
-  const reindexed = await reindexObservations();
-  if (reindexed > 0) {
-    console.error(`[memorix] Reindexed ${reindexed} observations for project: ${project.id}`);
-  }
-
-  // Initialize LLM provider (optional — graceful degradation)
-  const llmConfig = initLLM();
-  if (llmConfig) {
-    console.error(`[memorix] LLM enhanced mode: ${llmConfig.provider}/${llmConfig.model}`);
+  await initializeProjectRuntime('startup');
   } else {
-    console.error(`[memorix] LLM mode: off (set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable)`);
+    console.error('[memorix] HTTP session awaiting explicit project binding (projectRoot/roots)');
   }
-
-  console.error(`[memorix] Project: ${project.id} (${project.name})`);
-  console.error(`[memorix] Data dir: ${projectDir}`);
 
   // Sync advisory variables — populated by deferredInit(), used by memorix_search
   let syncAdvisoryShown = false;
@@ -3191,14 +3210,7 @@ export async function createMemorixServer(
       loadDotenv(project.rootPath);
     } catch { /* best-effort */ }
 
-    // Re-initialize stores
-    graphManager = new KnowledgeGraphManager(projectDir);
-    await graphManager.init();
-    await initObservations(projectDir);
-    await reindexObservations();
-
-    console.error(`[memorix] Project switched to: ${project.id} (${project.name})`);
-    console.error(`[memorix] Data dir: ${projectDir}`);
+    await initializeProjectRuntime('switch');
     return true;
   };
 

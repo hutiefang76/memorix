@@ -190,7 +190,10 @@ beforeAll(async () => {
             testDir,
             undefined,
             undefined,
-            { allowUntrackedFallback: false },
+            {
+              allowUntrackedFallback: false,
+              deferProjectInitUntilBound: true,
+            },
           );
           createdState = { transport, server, switchProject, isExplicitlyBound };
           await server.connect(transport);
@@ -294,6 +297,20 @@ describe('HTTP Transport', () => {
     expect(res.headers.get('mcp-session-id')).toBeTruthy();
     expect(res.json?.result?.protocolVersion).toBe('2024-11-05');
     expect(res.json?.result?.capabilities?.tools).toBeDefined();
+  });
+
+  it('should keep unresolved HTTP probe sessions lightweight', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await initSession();
+      const logs = errorSpy.mock.calls.map(call => call.join(' ')).join('\n');
+      expect(logs).toContain('HTTP session awaiting explicit project binding');
+      expect(logs).not.toContain('Reindexed');
+      expect(logs).not.toContain('LLM enhanced mode');
+      expect(logs).not.toContain('Project: __unresolved__');
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('should list all Memorix tools via an initialized session', async () => {

@@ -149,7 +149,10 @@ export default defineCommand({
           projectRoot,
           undefined,
           sharedTeam,
-          { allowUntrackedFallback: false },
+          {
+            allowUntrackedFallback: false,
+            deferProjectInitUntilBound: true,
+          },
         );
         createdState = { transport, server, switchProject, isExplicitlyBound };
         await server.connect(transport);
