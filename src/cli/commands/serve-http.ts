@@ -2,7 +2,8 @@
  * memorix serve-http — Start MCP Server on Streamable HTTP transport
  *
  * Enables multiple agents (across different IDEs) to connect to ONE Memorix server.
- * Each agent gets its own MCP session but shares the same project data.
+ * Each agent gets its own MCP session, but all sessions currently share the same
+ * project context chosen when serve-http starts.
  *
  * Usage:
  *   memorix serve-http                    # default port 3211
@@ -189,7 +190,7 @@ export default defineCommand({
     const pathModule = await import('node:path');
     const { fileURLToPath } = await import('node:url');
 
-    const project = detectProject() ?? { id: `untracked/${pathModule.default.basename(projectRoot)}`, name: pathModule.default.basename(projectRoot), rootPath: projectRoot };
+    const project = detectProject(projectRoot) ?? { id: `untracked/${pathModule.default.basename(projectRoot)}`, name: pathModule.default.basename(projectRoot), rootPath: projectRoot };
     const dashDataDir = await getProjectDataDir(project.id);
     const baseDir = getBaseDataDir();
 
