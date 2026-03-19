@@ -34,6 +34,7 @@ async function interactiveMenu(): Promise<void> {
         { value: 'search', label: 'Search memories', hint: 'find by keyword' },
         { value: 'list', label: 'View recent', hint: 'latest observations' },
         { value: 'serve-http', label: 'Start control plane', hint: 'HTTP MCP + dashboard on 3211' },
+        { value: 'background', label: 'Background service', hint: 'start/stop/status control plane daemon' },
         { value: 'dashboard', label: 'Open standalone dashboard', hint: 'local read-only view' },
         { value: 'integrate', label: 'Integrate an IDE', hint: 'opt-in dot files for one agent' },
         { value: 'hooks', label: 'Legacy hooks menu', hint: 'compatibility install path' },
@@ -76,6 +77,9 @@ async function interactiveMenu(): Promise<void> {
         p.log.info('Starting Memorix control plane on http://localhost:3211 ...');
         await runCommand('serve-http');
         return; // Blocking action, exit after
+      case 'background':
+        await runBackgroundMenu();
+        break;
       case 'integrate': {
         const m = await import('./commands/integrate.js');
         await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
@@ -115,6 +119,30 @@ async function interactiveMenu(): Promise<void> {
     
     console.log(''); // Add spacing before next menu
   }
+}
+
+async function runBackgroundMenu(): Promise<void> {
+  const action = await p.select({
+    message: 'Background Control Plane:',
+    options: [
+      { value: 'start', label: 'Start', hint: 'launch control plane in background' },
+      { value: 'stop', label: 'Stop', hint: 'stop the background service' },
+      { value: 'status', label: 'Status', hint: 'show running state & health' },
+      { value: 'restart', label: 'Restart', hint: 'stop + start' },
+      { value: 'logs', label: 'View logs', hint: 'show recent log output' },
+      { value: 'back', label: '\u2190 Back', hint: 'return to main menu' },
+    ],
+  });
+
+  if (p.isCancel(action) || action === 'back') return;
+
+  const m = await import('./commands/background.js');
+  // Synthesize citty args with the chosen subcommand
+  await m.default.run?.({
+    args: { _: [action], port: '3211', follow: false, lines: '50' },
+    rawArgs: [action],
+    cmd: m.default,
+  } as any);
 }
 
 async function runHooksMenu(): Promise<void> {
@@ -635,10 +663,19 @@ const main = defineCommand({
     ingest: () => import('./commands/ingest.js').then(m => m.default),
     'git-hook': () => import('./commands/git-hook-install.js').then(m => m.default),
     'git-hook-uninstall': () => import('./commands/git-hook-uninstall.js').then(m => m.default),
+    background: () => import('./commands/background.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
   },
   async run() {
+    // Guard: if citty already resolved a subcommand, its run() was called before this.
+    // Detect by checking if the first CLI arg matches a registered subcommand name.
+    const firstArg = process.argv[2];
+    const knownSubs = ['init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
+      'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
+      'background', 'dashboard', 'cleanup'];
+    if (firstArg && knownSubs.includes(firstArg)) return;
+
     // No subcommand provided — show interactive TUI menu if in TTY, otherwise show help
     if (process.stdout.isTTY && process.stdin.isTTY) {
       await interactiveMenu();
@@ -647,6 +684,7 @@ const main = defineCommand({
       console.error(`Memorix v${pkg.version} — Local-first memory control plane\n`);
       console.error('Usage: memorix <command>\n');
       console.error('Commands:');
+      console.error('  background Start/stop/status background control plane');
       console.error('  serve-http Start HTTP MCP + dashboard control plane');
       console.error('  serve      Start MCP server on stdio');
       console.error('  init       Create global defaults or project config');

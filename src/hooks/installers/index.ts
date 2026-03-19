@@ -733,14 +733,20 @@ alwaysApply: true
 
 You have access to Memorix memory tools. Follow these rules to maintain persistent context across sessions.
 
-## RULE 1: Session Start — Load Context
+## RULE 1: Session Start — Bind Project, Then Load Context
 
 At the **beginning of every conversation**, BEFORE responding to the user:
 
-1. Call \`memorix_session_start\` to get the previous session summary and key memories (this is a direct read, not a search — no fragmentation risk)
+1. Call \`memorix_session_start\` with parameters:
+   - \`agent\`: your agent identifier (e.g. "windsurf", "codex", "antigravity")
+   - \`projectRoot\`: the **absolute path** of the current workspace or repo root
+   This binds the session to the correct project. Without \`projectRoot\`, memories may go to the wrong bucket.
 2. Then call \`memorix_search\` with a query related to the user's first message for additional context
 3. If search results are found, use \`memorix_detail\` to fetch the most relevant ones
 4. Reference relevant memories naturally — the user should feel you "remember" them
+
+**Important:** \`projectRoot\` is a detection anchor only; Git remains the source of truth for project identity.
+In HTTP control-plane mode (\`memorix serve-http\` / \`memorix background start\`), explicit \`projectRoot\` binding is required for correct multi-project isolation.
 
 ## RULE 2: Store Important Context
 
