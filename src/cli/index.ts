@@ -20,104 +20,248 @@ const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as { version: string };
 
 // ============================================================
-// Interactive TUI Menu
+// Workbench — Terminal-native memory control plane
 // ============================================================
 
-async function interactiveMenu(): Promise<void> {
-  p.intro(`Memorix v${pkg.version}`);
+const DIM = '\x1b[2m';
+const RESET = '\x1b[0m';
+const BOLD = '\x1b[1m';
+const CYAN = '\x1b[36m';
+const GREEN = '\x1b[32m';
+const YELLOW = '\x1b[33m';
+const BLUE = '\x1b[34m';
 
-  // Loop until user exits or chooses a blocking action
-  while (true) {
-    const action = await p.select({
-      message: 'What would you like to do?',
-      options: [
-        { value: 'search', label: 'Search memories', hint: 'find by keyword' },
-        { value: 'list', label: 'View recent', hint: 'latest observations' },
-        { value: 'serve-http', label: 'Start control plane', hint: 'HTTP MCP + dashboard on 3211' },
-        { value: 'background', label: 'Background service', hint: 'start/stop/status control plane daemon' },
-        { value: 'dashboard', label: 'Open standalone dashboard', hint: 'local read-only view' },
-        { value: 'integrate', label: 'Integrate an IDE', hint: 'opt-in dot files for one agent' },
-        { value: 'hooks', label: 'Legacy hooks menu', hint: 'compatibility install path' },
-        { value: 'status', label: 'Project status', hint: 'info + stats' },
-        { value: 'cleanup', label: 'Clean up', hint: 'remove old memories' },
-        { value: 'ingest', label: 'Ingest from Git', hint: 'commit → memory' },
-        { value: 'audit', label: 'Audit trail', hint: 'Memorix-written files' },
-        { value: 'sync', label: 'Sync rules', hint: 'cross-agent sync' },
-        { value: 'init', label: 'Init config', hint: 'choose global defaults or project override' },
-        { value: 'configure', label: 'Configure', hint: 'LLM + embedding settings' },
-        { value: 'serve', label: 'Start MCP server', hint: 'stdio for IDE integration' },
-        { value: 'exit', label: 'Exit', hint: 'quit memorix' },
-      ],
+async function getWorkbenchHeader(): Promise<string[]> {
+  const lines: string[] = [];
+  const ver = `v${pkg.version}`;
+
+  // Detect project
+  let projectLabel = DIM + 'no project' + RESET;
+  let projectDetected = false;
+  try {
+    const { detectProject } = await import('../project/detector.js');
+    const proj = detectProject(process.cwd());
+    if (proj) {
+      projectLabel = `${BOLD}${proj.name}${RESET} ${DIM}(${proj.id})${RESET}`;
+      projectDetected = true;
+    }
+  } catch { /* ignore */ }
+
+  // Detect mode
+  let modeLabel = `${DIM}CLI${RESET}`;
+  try {
+    const { existsSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { homedir } = await import('node:os');
+    const bgPath = join(homedir(), '.memorix', 'background.json');
+    if (existsSync(bgPath)) {
+      const bg = JSON.parse(readFileSync(bgPath, 'utf-8'));
+      try { process.kill(bg.pid, 0); modeLabel = `${GREEN}Background${RESET} ${DIM}(port ${bg.port})${RESET}`; } catch { /* dead */ }
+    }
+  } catch { /* ignore */ }
+
+  // Detect embedding
+  let searchLabel = `${DIM}fulltext (BM25)${RESET}`;
+  try {
+    const { getEmbeddingMode } = await import('../config.js');
+    const mode = getEmbeddingMode();
+    if (mode !== 'off') {
+      searchLabel = `${CYAN}hybrid${RESET} ${DIM}(BM25 + vector)${RESET}`;
+    }
+  } catch { /* ignore */ }
+
+  // Count memories
+  let memLabel = `${DIM}unknown${RESET}`;
+  if (projectDetected) {
+    try {
+      const { detectProject } = await import('../project/detector.js');
+      const { getProjectDataDir, loadObservationsJson } = await import('../store/persistence.js');
+      const proj = detectProject(process.cwd());
+      if (proj) {
+        const dataDir = await getProjectDataDir(proj.id);
+        const { existsSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const obsFile = join(dataDir, 'observations.json');
+        if (existsSync(obsFile)) {
+          const obs = await loadObservationsJson(dataDir) as any[];
+          const active = obs.filter((o: any) => (o.status ?? 'active') === 'active').length;
+          memLabel = `${BOLD}${active}${RESET} ${DIM}active${RESET}`;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  lines.push('');
+  lines.push(`  ${BOLD}Memorix Workbench${RESET}${DIM}${' '.repeat(36)}${ver}${RESET}`);
+  lines.push(`  ${DIM}${'─'.repeat(55)}${RESET}`);
+  lines.push(`  ${DIM}Project${RESET}    ${projectLabel}`);
+  lines.push(`  ${DIM}Mode${RESET}       ${modeLabel}`);
+  lines.push(`  ${DIM}Search${RESET}     ${searchLabel}`);
+  lines.push(`  ${DIM}Memories${RESET}   ${memLabel}`);
+  lines.push(`  ${DIM}${'─'.repeat(55)}${RESET}`);
+  lines.push('');
+
+  return lines;
+}
+
+function printSlashHelp(): void {
+  console.log('');
+  console.log(`  ${BOLD}Commands${RESET}`);
+  console.log(`  ${DIM}${'─'.repeat(45)}${RESET}`);
+  console.log(`  ${CYAN}/search${RESET} ${DIM}<query>${RESET}    Search memories`);
+  console.log(`  ${CYAN}/remember${RESET} ${DIM}<text>${RESET}  Store a quick memory`);
+  console.log(`  ${CYAN}/recent${RESET}            View recent memories`);
+  console.log(`  ${CYAN}/doctor${RESET}            System diagnostics`);
+  console.log(`  ${CYAN}/project${RESET}           Project details`);
+  console.log(`  ${CYAN}/background${RESET}        Background service`);
+  console.log(`  ${CYAN}/dashboard${RESET}         Open dashboard`);
+  console.log(`  ${CYAN}/configure${RESET}         Settings`);
+  console.log(`  ${CYAN}/integrate${RESET}         Set up an IDE`);
+  console.log(`  ${CYAN}/exit${RESET}              Exit workbench`);
+  console.log(`  ${DIM}${'─'.repeat(45)}${RESET}`);
+  console.log(`  ${DIM}Or just type to search memories directly.${RESET}`);
+  console.log('');
+}
+
+async function runRemember(text: string): Promise<void> {
+  const s = p.spinner();
+  s.start('Storing memory...');
+
+  try {
+    const { detectProject } = await import('../project/detector.js');
+    const { getProjectDataDir } = await import('../store/persistence.js');
+    const { initObservations, storeObservation } = await import('../memory/observations.js');
+
+    const proj = detectProject(process.cwd());
+    if (!proj) { s.stop('Failed'); p.log.error('No .git found. Run "git init" first.'); return; }
+    const dataDir = await getProjectDataDir(proj.id);
+    await initObservations(dataDir);
+
+    const result = await storeObservation({
+      entityName: 'quick-note',
+      type: 'discovery',
+      title: text.slice(0, 100),
+      narrative: text,
+      facts: [],
+      projectId: proj.id,
     });
 
-    if (p.isCancel(action) || action === 'exit') {
-      p.outro('Goodbye!');
+    s.stop('Stored');
+    p.log.success(`Memory #${result.observation.id} saved: ${text.slice(0, 60)}${text.length > 60 ? '...' : ''}`);
+  } catch (err) {
+    s.stop('Failed');
+    p.log.error(`Error: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+async function workbench(): Promise<void> {
+  // Print header
+  const header = await getWorkbenchHeader();
+  for (const line of header) console.log(line);
+
+  console.log(`  ${DIM}Type to search memories, or /help for commands.${RESET}`);
+  console.log('');
+
+  // Main input loop
+  while (true) {
+    const input = await p.text({
+      message: `${CYAN}>${RESET}`,
+      placeholder: 'search memories or /command',
+    });
+
+    if (p.isCancel(input)) {
+      p.outro(`${DIM}Goodbye${RESET}`);
       process.exit(0);
     }
 
-    switch (action) {
-      case 'search': {
-        const query = await p.text({
-          message: 'Enter search query:',
-          placeholder: 'e.g., authentication bug fix',
-        });
-        if (p.isCancel(query) || !query) {
-          continue; // Back to menu
+    const raw = (input || '').trim();
+    if (!raw) continue;
+
+    // Slash command routing
+    if (raw.startsWith('/')) {
+      const parts = raw.slice(1).split(/\s+/);
+      const cmd = parts[0]?.toLowerCase();
+      const arg = parts.slice(1).join(' ');
+
+      switch (cmd) {
+        case 'search':
+        case 's':
+          if (arg) { await runSearch(arg); } else {
+            const q = await p.text({ message: 'Search query:', placeholder: 'e.g., authentication bug' });
+            if (!p.isCancel(q) && q) await runSearch(q);
+          }
+          break;
+        case 'remember':
+        case 'r':
+          if (arg) { await runRemember(arg); } else {
+            const t = await p.text({ message: 'What to remember:', placeholder: 'e.g., Use path.join for Windows' });
+            if (!p.isCancel(t) && t) await runRemember(t);
+          }
+          break;
+        case 'recent':
+          await runList();
+          break;
+        case 'doctor':
+          await runCommand('doctor');
+          break;
+        case 'project':
+        case 'status':
+          await runCommand('status');
+          break;
+        case 'background':
+        case 'bg':
+          await runBackgroundMenu();
+          break;
+        case 'dashboard':
+        case 'dash':
+          await runCommand('dashboard');
+          return;
+        case 'configure':
+        case 'config':
+          await runConfigure();
+          break;
+        case 'integrate':
+        case 'setup': {
+          const m = await import('./commands/integrate.js');
+          await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
+          break;
         }
-        await runSearch(query);
-        break;
+        case 'serve':
+          p.log.info('Starting MCP server on stdio...');
+          await runCommand('serve');
+          return;
+        case 'serve-http':
+          p.log.info('Starting control plane...');
+          await runCommand('serve-http');
+          return;
+        case 'sync':
+          await runCommand('sync');
+          break;
+        case 'cleanup':
+          await runCleanupMenu();
+          break;
+        case 'ingest':
+          await runIngestMenu();
+          break;
+        case 'help':
+        case '?':
+          printSlashHelp();
+          break;
+        case 'exit':
+        case 'quit':
+        case 'q':
+          p.outro(`${DIM}Goodbye${RESET}`);
+          process.exit(0);
+          break; // unreachable
+        default:
+          p.log.warn(`Unknown command: /${cmd}. Type /help for available commands.`);
       }
-      case 'list':
-        await runList();
-        break;
-      case 'dashboard':
-        await runCommand('dashboard');
-        return; // Dashboard is blocking, exit after
-      case 'serve-http':
-        p.log.info('Starting Memorix control plane on http://localhost:3211 ...');
-        await runCommand('serve-http');
-        return; // Blocking action, exit after
-      case 'background':
-        await runBackgroundMenu();
-        break;
-      case 'integrate': {
-        const m = await import('./commands/integrate.js');
-        await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
-        break;
-      }
-      case 'hooks':
-        await runHooksMenu();
-        break;
-      case 'status':
-        await runCommand('status');
-        break;
-      case 'cleanup':
-        await runCleanupMenu();
-        break;
-      case 'ingest':
-        await runIngestMenu();
-        break;
-      case 'audit':
-        await runAuditList();
-        break;
-      case 'sync':
-        await runCommand('sync');
-        break;
-      case 'init': {
-        const m = await import('./commands/init.js');
-        await m.default.run?.({ args: { _: [] }, rawArgs: [], cmd: m.default } as any);
-        break;
-      }
-      case 'configure':
-        await runConfigure();
-        break;
-      case 'serve':
-        p.log.info('Starting MCP server on stdio...');
-        await runCommand('serve');
-        return; // Serve is blocking, exit after
+    } else {
+      // Default: treat as search query
+      await runSearch(raw);
     }
-    
-    console.log(''); // Add spacing before next menu
+
+    console.log(''); // spacing
   }
 }
 
@@ -652,6 +796,22 @@ const main = defineCommand({
     description: 'Local-first memory control plane for AI coding agents via MCP',
   },
   subCommands: {
+    // One-shot product commands (primary user paths)
+    search: () => Promise.resolve(defineCommand({
+      meta: { name: 'search', description: 'Search memories' },
+      args: { query: { type: 'positional', description: 'Search query', required: true } },
+      async run({ args }) { await runSearch(args.query as string); },
+    })),
+    remember: () => Promise.resolve(defineCommand({
+      meta: { name: 'remember', description: 'Store a quick memory' },
+      args: { text: { type: 'positional', description: 'Text to remember', required: true } },
+      async run({ args }) { await runRemember(args.text as string); },
+    })),
+    recent: () => Promise.resolve(defineCommand({
+      meta: { name: 'recent', description: 'View recent memories' },
+      async run() { await runList(); },
+    })),
+    // Infrastructure commands
     init: () => import('./commands/init.js').then(m => m.default),
     integrate: () => import('./commands/integrate.js').then(m => m.default),
     serve: () => import('./commands/serve.js').then(m => m.default),
@@ -672,14 +832,15 @@ const main = defineCommand({
     // Guard: if citty already resolved a subcommand, its run() was called before this.
     // Detect by checking if the first CLI arg matches a registered subcommand name.
     const firstArg = process.argv[2];
-    const knownSubs = ['init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
+    const knownSubs = ['search', 'remember', 'recent',
+      'init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
       'background', 'doctor', 'dashboard', 'cleanup'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
     // No subcommand provided — show interactive TUI menu if in TTY, otherwise show help
     if (process.stdout.isTTY && process.stdin.isTTY) {
-      await interactiveMenu();
+      await workbench();
     } else {
       // Non-interactive mode: show usage hint
       console.error(`Memorix v${pkg.version} — Local-first memory control plane\n`);
