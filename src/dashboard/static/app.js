@@ -173,6 +173,18 @@ const i18n = {
     identityUnavailable: 'Identity Unavailable',
     identityUnavailableDesc: 'Could not load project identity data',
 
+    // System Health
+    systemHealth: 'System Health',
+    searchMode: 'Search Mode',
+    embeddingProvider: 'Embedding Provider',
+    backfillPending: 'Backfill Pending',
+    vectorsMissing: 'vectors missing',
+    noBackfillNeeded: 'All vectors indexed',
+    providerReady: 'Ready',
+    providerUnavailable: 'Unavailable',
+    providerDisabled: 'Disabled (BM25 only)',
+    degradedHint: 'Search is degraded — no vector similarity',
+
     // Nav tooltips
     navDashboard: 'Dashboard',
     navGitMemory: 'Git Memory',
@@ -348,6 +360,18 @@ const i18n = {
     tagDirty: '脏',
     identityUnavailable: '身份信息不可用',
     identityUnavailableDesc: '无法加载项目身份数据',
+
+    // System Health
+    systemHealth: '系统健康',
+    searchMode: '搜索模式',
+    embeddingProvider: '向量提供者',
+    backfillPending: '回填待处理',
+    vectorsMissing: '条向量缺失',
+    noBackfillNeeded: '所有向量已索引',
+    providerReady: '就绪',
+    providerUnavailable: '不可用',
+    providerDisabled: '已禁用 (仅 BM25)',
+    degradedHint: '搜索已降级 — 无向量相似性',
 
     // Nav tooltips
     navDashboard: '仪表盘',
@@ -720,6 +744,37 @@ async function loadDashboard() {
         <div class="stat-label">${t('vectorSearch')}</div>
         <div class="stat-value" style="font-size: 18px;">${stats.embedding?.enabled ? '✓ ' + t('enabled') : t('fulltextOnly')}</div>
         ${stats.embedding?.provider ? `<div class="stat-sub">${stats.embedding.provider} (${stats.embedding.dimensions}d)</div>` : ''}
+      </div>
+    </div>
+
+    <!-- System Health -->
+    <div class="overview-row">
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('systemHealth')}</span></div>
+        <div class="panel-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('embeddingProvider')}</div>
+              <div style="font-size:14px;font-weight:600;color:${stats.embedding?.enabled ? 'var(--accent-green)' : stats.embedding?.provider ? 'var(--accent-amber)' : 'var(--text-muted)'};">
+                ${stats.embedding?.enabled ? t('providerReady') : stats.embedding?.provider ? t('providerUnavailable') : t('providerDisabled')}
+              </div>
+              ${stats.embedding?.provider ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${stats.embedding.provider} (${stats.embedding.dimensions}d)</div>` : ''}
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('backfillPending')}</div>
+              <div style="font-size:14px;font-weight:600;color:${(stats.vectorStatus?.missing || 0) > 0 ? 'var(--accent-amber)' : 'var(--accent-green)'};">
+                ${(stats.vectorStatus?.missing || 0) > 0 ? stats.vectorStatus.missing + ' ' + t('vectorsMissing') : t('noBackfillNeeded')}
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('searchMode')}</div>
+              <div style="font-size:14px;font-weight:600;color:${stats.embedding?.enabled ? 'var(--accent-blue)' : 'var(--accent-amber)'};">
+                ${stats.embedding?.enabled ? 'Hybrid (BM25 + Vector)' : 'BM25 Fulltext'}
+              </div>
+              ${!stats.embedding?.enabled && stats.embedding?.provider !== '' ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:2px;">${t('degradedHint')}</div>` : ''}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -664,6 +664,7 @@ const main = defineCommand({
     'git-hook': () => import('./commands/git-hook-install.js').then(m => m.default),
     'git-hook-uninstall': () => import('./commands/git-hook-uninstall.js').then(m => m.default),
     background: () => import('./commands/background.js').then(m => m.default),
+    doctor: () => import('./commands/doctor.js').then(m => m.default),
     dashboard: () => import('./commands/dashboard.js').then(m => m.default),
     cleanup: () => import('./commands/cleanup.js').then(m => m.default),
   },
@@ -673,7 +674,7 @@ const main = defineCommand({
     const firstArg = process.argv[2];
     const knownSubs = ['init', 'integrate', 'serve', 'serve-http', 'status', 'sync',
       'hook', 'hooks', 'ingest', 'git-hook', 'git-hook-uninstall',
-      'background', 'dashboard', 'cleanup'];
+      'background', 'doctor', 'dashboard', 'cleanup'];
     if (firstArg && knownSubs.includes(firstArg)) return;
 
     // No subcommand provided — show interactive TUI menu if in TTY, otherwise show help

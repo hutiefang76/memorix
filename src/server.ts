@@ -1608,6 +1608,8 @@ export async function createMemorixServer(
       },
     },
     async ({ entities }) => {
+      const unresolved = requireResolvedProject('create entities in the knowledge graph');
+      if (unresolved) return unresolved;
       const safeEntities = coerceObjectArray<{ name: string; entityType: string; observations: string[] }>(entities);
       const result = await graphManager.createEntities(safeEntities);
       return {
@@ -1634,6 +1636,8 @@ export async function createMemorixServer(
       },
     },
     async ({ relations }) => {
+      const unresolved = requireResolvedProject('create relations in the knowledge graph');
+      if (unresolved) return unresolved;
       const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
       const result = await graphManager.createRelations(safeRelations);
       return {
@@ -1656,6 +1660,8 @@ export async function createMemorixServer(
       },
     },
     async ({ observations }) => {
+      const unresolved = requireResolvedProject('add observations to the knowledge graph');
+      if (unresolved) return unresolved;
       const safeObs = coerceObjectArray<{ entityName: string; contents: string[] }>(observations);
       const result = await graphManager.addObservations(safeObs);
       return {
@@ -1675,6 +1681,8 @@ export async function createMemorixServer(
       },
     },
     async ({ entityNames }) => {
+      const unresolved = requireResolvedProject('delete entities from the knowledge graph');
+      if (unresolved) return unresolved;
       const safeNames = coerceStringArray(entityNames);
       await graphManager.deleteEntities(safeNames);
       return {
@@ -1697,6 +1705,8 @@ export async function createMemorixServer(
       },
     },
     async ({ deletions }) => {
+      const unresolved = requireResolvedProject('delete observations from the knowledge graph');
+      if (unresolved) return unresolved;
       const safeDeletions = coerceObjectArray<{ entityName: string; observations: string[] }>(deletions);
       await graphManager.deleteObservations(safeDeletions);
       return {
@@ -1720,6 +1730,8 @@ export async function createMemorixServer(
       },
     },
     async ({ relations }) => {
+      const unresolved = requireResolvedProject('delete relations from the knowledge graph');
+      if (unresolved) return unresolved;
       const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
       await graphManager.deleteRelations(safeRelations);
       return {
