@@ -912,10 +912,11 @@ function renderPieChart(canvasId, entries, icons) {
 }
 
 // ============================================================
-// Knowledge Graph Page — Enterprise Topology Explorer
+// Memory Topology Explorer — Cytoscape.js + Dagre
+// Focused topology default, not full graph dump
 // ============================================================
 
-let _graphState = null; // Module-level graph state for cross-function access
+let _graphState = null;
 
 async function loadGraph() {
   const container = document.getElementById('page-graph');
@@ -929,24 +930,21 @@ async function loadGraph() {
 
   container.innerHTML = `
     <div class="page-header">
-      <h1 class="page-title">Memory Topology Explorer</h1>
+      <h1 class="page-title">Memory Topology</h1>
       <p class="page-subtitle">${graph.entities.length} entities · ${graph.relations.length} relations</p>
     </div>
     <div class="graph-layout">
       <div class="graph-filter-panel" id="graph-filter-panel"></div>
       <div id="graph-container">
-        <canvas id="graph-canvas"></canvas>
-        <div class="graph-tooltip" id="graph-tooltip">
-          <div class="graph-tooltip-name"></div>
-          <div class="graph-tooltip-type"></div>
-        </div>
+        <div id="cytoscape-mount"></div>
         <div class="graph-status-bar">
           <span class="graph-status-item" id="gs-nodes"></span>
           <span class="graph-status-item" id="gs-edges"></span>
           <span class="graph-status-item" id="gs-layout"></span>
+          <span class="graph-status-item" id="gs-scope"></span>
           <div class="graph-zoom-controls">
             <button class="graph-zoom-btn" id="gz-out">\u2212</button>
-            <button class="graph-zoom-btn" id="gz-reset">\u27F3</button>
+            <button class="graph-zoom-btn" id="gz-fit">\u2B21</button>
             <button class="graph-zoom-btn" id="gz-in">+</button>
           </div>
         </div>
@@ -962,27 +960,18 @@ async function loadGraph() {
 }
 
 // ============================================================
-// Enterprise Topology Explorer — Clean Canvas Graph
-// Muted palette, theme-aware, stable layouts, no cosmic effects
+// Cytoscape.js + Dagre — Focused Topology Renderer
+// Default: 1-hop neighborhood of top entity, dagre LR layout
 // ============================================================
 
 function renderGraph(graph) {
-  const canvas = document.getElementById('graph-canvas');
-  const ctx = canvas.getContext('2d');
-  const container = document.getElementById('graph-container');
+  // Register dagre layout if not already registered
+  if (typeof cytoscape !== 'undefined' && typeof cytoscapeDagre !== 'undefined' && !cytoscape._dagreRegistered) {
+    cytoscapeDagre(cytoscape);
+    cytoscape._dagreRegistered = true;
+  }
 
-  const rect = container.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
-  ctx.scale(dpr, dpr);
-
-  const W = rect.width;
-  const H = rect.height - 28; // Reserve space for status bar
-
-  // --- Muted enterprise palette (no neon/vibrant) ---
+  // --- Muted enterprise palette ---
   const palette = [
     '#7C9CBF', '#8FB996', '#C4956A', '#A893C2',
     '#6BA3A0', '#B8A44C', '#C27878', '#7B8EB8',
@@ -996,328 +985,374 @@ function renderGraph(graph) {
 
   const typeCounts = {};
   graph.entities.forEach(e => { typeCounts[e.entityType] = (typeCounts[e.entityType] || 0) + 1; });
-
-  function hexRGBA(hex, alpha) {
-    const r2 = parseInt(hex.slice(1, 3), 16);
-    const g2 = parseInt(hex.slice(3, 5), 16);
-    const b2 = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r2},${g2},${b2},${alpha})`;
-  }
-
-  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
-  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
-
-  // --- Build nodes & edges ---
-  const allNodes = graph.entities.map((e) => {
-    const obsCount = e.observations.length;
-    return {
-      id: e.name, type: e.entityType, observations: e.observations,
-      x: 0, y: 0, vx: 0, vy: 0,
-      baseRadius: Math.max(4, Math.min(3 + Math.sqrt(obsCount) * 2.5, 16)),
-      radius: 0,
-      color: getTypeColor(e.entityType),
-      degree: 0,
-      _visible: true, _dimmed: false,
-    };
-  });
-  const nodeMap = {};
-  allNodes.forEach(n => nodeMap[n.id] = n);
-
-  const allEdges = graph.relations
-    .filter(r => nodeMap[r.from] && nodeMap[r.to])
-    .map(r => {
-      nodeMap[r.from].degree++;
-      nodeMap[r.to].degree++;
-      return { source: nodeMap[r.from], target: nodeMap[r.to], type: r.relationType };
-    });
-
   Object.keys(typeCounts).forEach(t2 => getTypeColor(t2));
 
-  // Node sizing by degree
-  const maxDegree = Math.max(1, ...allNodes.map(n => n.degree));
-  allNodes.forEach(n => {
-    n.radius = Math.min(n.baseRadius + (n.degree / maxDegree) * 8, 20);
+  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+
+  // --- Build data structures ---
+  const entityMap = {};
+  graph.entities.forEach(e => {
+    entityMap[e.name] = e;
   });
 
-  // Visible subsets (affected by filters)
-  let nodes = allNodes;
-  let edges = allEdges;
+  // Compute degree for each entity
+  const degreeMap = {};
+  graph.entities.forEach(e => { degreeMap[e.name] = 0; });
+  graph.relations.forEach(r => {
+    if (degreeMap[r.from] !== undefined) degreeMap[r.from]++;
+    if (degreeMap[r.to] !== undefined) degreeMap[r.to]++;
+  });
+
+  // Find top entity by degree (for default focus)
+  const topEntity = graph.entities.reduce((best, e) =>
+    (degreeMap[e.name] || 0) > (degreeMap[best.name] || 0) ? e : best,
+    graph.entities[0]
+  );
+
+  // --- State ---
   let activeTypes = new Set(Object.keys(typeCounts));
-  let currentView = 'graph'; // 'graph' | 'table'
-  let currentLayout = 'force'; // 'force' | 'circular' | 'concentric'
+  let currentView = 'topology'; // 'topology' | 'table'
+  let currentLayout = 'dagre-lr'; // 'dagre-lr' | 'dagre-tb'
+  let focusEntity = topEntity.name;
+  let depth = 1;
+  let showFullGraph = false;
+  let selectedNodeId = null;
+  let cy = null; // Cytoscape instance
 
-  // --- Camera (zoom & pan) ---
-  let cam = { x: 0, y: 0, zoom: 1 };
-  function worldToScreen(wx, wy) {
-    return { x: (wx - cam.x) * cam.zoom + W / 2, y: (wy - cam.y) * cam.zoom + H / 2 };
-  }
-  function screenToWorld(sx, sy) {
-    return { x: (sx - W / 2) / cam.zoom + cam.x, y: (sy - H / 2) / cam.zoom + cam.y };
-  }
+  // --- Subgraph extraction (BFS n-hop neighborhood) ---
+  function getNeighborhood(centerName, maxDepth) {
+    const visited = new Set();
+    const edgeSet = new Set();
+    const queue = [{ name: centerName, d: 0 }];
+    visited.add(centerName);
 
-  // --- Layout algorithms ---
-  function applyForceLayout() {
-    const spread = Math.min(W, H) * 0.4;
-    nodes.forEach(n => {
-      n.x = (Math.random() - 0.5) * spread;
-      n.y = (Math.random() - 0.5) * spread;
-      n.vx = 0; n.vy = 0;
-    });
-    isSettled = false; simTick = 0; settleCountdown = 0;
-  }
-
-  function applyCircularLayout() {
-    const r = Math.min(W, H) * 0.35;
-    nodes.forEach((n, i) => {
-      const angle = (i / nodes.length) * Math.PI * 2 - Math.PI / 2;
-      n.x = Math.cos(angle) * r;
-      n.y = Math.sin(angle) * r;
-      n.vx = 0; n.vy = 0;
-    });
-    isSettled = true;
-  }
-
-  function applyConcentricLayout() {
-    // Sort by degree descending — high-degree nodes in center ring
-    const sorted = [...nodes].sort((a, b) => b.degree - a.degree);
-    const rings = [];
-    let remaining = [...sorted];
-    let ringIdx = 0;
-    while (remaining.length > 0) {
-      const ringSize = ringIdx === 0 ? Math.min(3, remaining.length) : Math.min(8 + ringIdx * 4, remaining.length);
-      rings.push(remaining.splice(0, ringSize));
-      ringIdx++;
-    }
-    const ringGap = Math.min(W, H) * 0.12;
-    rings.forEach((ring, ri) => {
-      const r = ri === 0 ? 0 : ri * ringGap;
-      ring.forEach((n, ni) => {
-        if (r === 0) {
-          n.x = (ni - (ring.length - 1) / 2) * 30;
-          n.y = 0;
-        } else {
-          const angle = (ni / ring.length) * Math.PI * 2 - Math.PI / 2;
-          n.x = Math.cos(angle) * r;
-          n.y = Math.sin(angle) * r;
+    while (queue.length > 0) {
+      const { name, d } = queue.shift();
+      if (d >= maxDepth) continue;
+      for (const r of graph.relations) {
+        if (r.from === name && entityMap[r.to] && !visited.has(r.to)) {
+          visited.add(r.to);
+          edgeSet.add(r);
+          queue.push({ name: r.to, d: d + 1 });
+        } else if (r.from === name && entityMap[r.to]) {
+          edgeSet.add(r);
         }
-        n.vx = 0; n.vy = 0;
+        if (r.to === name && entityMap[r.from] && !visited.has(r.from)) {
+          visited.add(r.from);
+          edgeSet.add(r);
+          queue.push({ name: r.from, d: d + 1 });
+        } else if (r.to === name && entityMap[r.from]) {
+          edgeSet.add(r);
+        }
+      }
+    }
+    return {
+      nodeNames: visited,
+      edges: [...edgeSet].filter(r => visited.has(r.from) && visited.has(r.to)),
+    };
+  }
+
+  // --- Build Cytoscape elements from current state ---
+  function buildElements() {
+    let nodeNames, visibleEdges;
+
+    if (showFullGraph) {
+      nodeNames = new Set(graph.entities.filter(e => activeTypes.has(e.entityType)).map(e => e.name));
+      visibleEdges = graph.relations.filter(r => nodeNames.has(r.from) && nodeNames.has(r.to));
+    } else {
+      const sub = getNeighborhood(focusEntity, depth);
+      nodeNames = new Set([...sub.nodeNames].filter(n => activeTypes.has(entityMap[n]?.entityType)));
+      // Re-add focus entity even if type-filtered
+      if (entityMap[focusEntity]) nodeNames.add(focusEntity);
+      visibleEdges = sub.edges.filter(r => nodeNames.has(r.from) && nodeNames.has(r.to));
+    }
+
+    // Top centrality nodes for label display (top 10 by degree within visible set)
+    const visibleDegrees = {};
+    nodeNames.forEach(n => { visibleDegrees[n] = 0; });
+    visibleEdges.forEach(r => {
+      if (visibleDegrees[r.from] !== undefined) visibleDegrees[r.from]++;
+      if (visibleDegrees[r.to] !== undefined) visibleDegrees[r.to]++;
+    });
+    const topCentrality = new Set(
+      [...nodeNames].sort((a, b) => (visibleDegrees[b] || 0) - (visibleDegrees[a] || 0)).slice(0, 10)
+    );
+
+    const nodes = [...nodeNames].map(name => {
+      const e = entityMap[name];
+      const deg = visibleDegrees[name] || 0;
+      const isFocus = name === focusEntity;
+      const isTop = topCentrality.has(name);
+      const showLabel = isFocus || isTop;
+      return {
+        data: {
+          id: name,
+          label: showLabel ? (name.length > 24 ? name.slice(0, 22) + '\u2026' : name) : '',
+          fullLabel: name,
+          type: e.entityType,
+          obsCount: e.observations.length,
+          degree: deg,
+          color: getTypeColor(e.entityType),
+          isFocus: isFocus,
+          nodeSize: Math.max(16, Math.min(12 + Math.sqrt(deg) * 6, 40)),
+        },
+      };
+    });
+
+    const edges = visibleEdges.map((r, i) => ({
+      data: {
+        id: 'e' + i + '_' + r.from + '_' + r.to,
+        source: r.from,
+        target: r.to,
+        relationType: r.relationType,
+      },
+    }));
+
+    return { nodes, edges, visibleCount: nodeNames.size, edgeCount: visibleEdges.length };
+  }
+
+  // --- Cytoscape style ---
+  function getCyStyle() {
+    const light = isLight();
+    return [
+      {
+        selector: 'node',
+        style: {
+          'width': 'data(nodeSize)',
+          'height': 'data(nodeSize)',
+          'background-color': 'data(color)',
+          'background-opacity': 0.85,
+          'border-width': 1,
+          'border-color': light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)',
+          'label': 'data(label)',
+          'font-size': 10,
+          'font-family': 'Inter, system-ui, sans-serif',
+          'font-weight': 400,
+          'color': light ? '#1C1B1F' : '#E6E1E5',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': 4,
+          'text-max-width': 120,
+          'text-wrap': 'ellipsis',
+          'text-background-color': light ? '#F7F2FA' : '#0F0F17',
+          'text-background-opacity': 0.7,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle',
+          'min-zoomed-font-size': 8,
+        },
+      },
+      {
+        selector: 'node[?isFocus]',
+        style: {
+          'border-width': 3,
+          'border-color': light ? '#6750A4' : '#D0BCFF',
+          'font-weight': 600,
+          'font-size': 12,
+        },
+      },
+      {
+        selector: 'node:selected',
+        style: {
+          'border-width': 3,
+          'border-color': light ? '#6750A4' : '#D0BCFF',
+          'border-style': 'dashed',
+          'font-weight': 600,
+          'label': 'data(fullLabel)',
+        },
+      },
+      {
+        selector: 'node.hover',
+        style: {
+          'border-width': 2,
+          'border-color': light ? '#6750A4' : '#D0BCFF',
+          'label': 'data(fullLabel)',
+          'font-weight': 500,
+          'z-index': 999,
+        },
+      },
+      {
+        selector: 'edge',
+        style: {
+          'width': 1,
+          'line-color': light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
+          'target-arrow-color': light ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)',
+          'target-arrow-shape': 'triangle',
+          'arrow-scale': 0.7,
+          'curve-style': 'bezier',
+          'label': '',
+        },
+      },
+      {
+        selector: 'edge:selected, edge.hover',
+        style: {
+          'width': 2,
+          'line-color': light ? 'rgba(103,80,164,0.5)' : 'rgba(208,188,255,0.4)',
+          'target-arrow-color': light ? 'rgba(103,80,164,0.6)' : 'rgba(208,188,255,0.5)',
+          'label': 'data(relationType)',
+          'font-size': 9,
+          'font-family': 'JetBrains Mono, monospace',
+          'color': light ? '#6750A4' : '#D0BCFF',
+          'text-background-color': light ? '#F7F2FA' : '#0F0F17',
+          'text-background-opacity': 0.8,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle',
+          'text-rotation': 'autorotate',
+        },
+      },
+      {
+        selector: '.dimmed',
+        style: {
+          'opacity': 0.15,
+        },
+      },
+    ];
+  }
+
+  // --- Layout config ---
+  function getLayoutConfig() {
+    if (currentLayout === 'dagre-tb') {
+      return { name: 'dagre', rankDir: 'TB', nodeSep: 40, rankSep: 60, edgeSep: 20, padding: 30 };
+    }
+    // Default: dagre LR
+    return { name: 'dagre', rankDir: 'LR', nodeSep: 40, rankSep: 80, edgeSep: 20, padding: 30 };
+  }
+
+  // --- Initialize / rebuild Cytoscape ---
+  function initCytoscape() {
+    const { nodes, edges, visibleCount, edgeCount } = buildElements();
+
+    if (cy) cy.destroy();
+
+    const light = isLight();
+    const mountEl = document.getElementById('cytoscape-mount');
+    if (!mountEl) return;
+
+    cy = cytoscape({
+      container: mountEl,
+      elements: [...nodes, ...edges],
+      style: getCyStyle(),
+      layout: getLayoutConfig(),
+      wheelSensitivity: 0.3,
+      minZoom: 0.1,
+      maxZoom: 4,
+      boxSelectionEnabled: false,
+    });
+
+    // --- Event handlers ---
+    cy.on('tap', 'node', function (evt) {
+      const node = evt.target;
+      selectedNodeId = node.id();
+      showInspector(node.id());
+    });
+
+    cy.on('tap', function (evt) {
+      if (evt.target === cy) {
+        selectedNodeId = null;
+        showInspector(null);
+      }
+    });
+
+    let hoverNode = null;
+    cy.on('mouseover', 'node', function (evt) {
+      const node = evt.target;
+      hoverNode = node;
+      node.addClass('hover');
+      // Show label on hover for all connected edges
+      node.connectedEdges().addClass('hover');
+    });
+    cy.on('mouseout', 'node', function (evt) {
+      const node = evt.target;
+      if (hoverNode === node) hoverNode = null;
+      node.removeClass('hover');
+      node.connectedEdges().removeClass('hover');
+    });
+
+    // Double-click to refocus
+    cy.on('dbltap', 'node', function (evt) {
+      focusEntity = evt.target.id();
+      showFullGraph = false;
+      rebuildGraph();
+    });
+
+    updateStatusBar(visibleCount, edgeCount);
+  }
+
+  function rebuildGraph() {
+    initCytoscape();
+    renderFilterPanel();
+  }
+
+  // --- Inspector ---
+  function showInspector(nodeId) {
+    const inspector = document.getElementById('graph-inspector');
+    if (!inspector) return;
+    if (!nodeId || !entityMap[nodeId]) {
+      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>Select a node to inspect</div>';
+      return;
+    }
+    const entity = entityMap[nodeId];
+    const related = graph.relations.filter(r => r.from === nodeId || r.to === nodeId);
+    const deg = degreeMap[nodeId] || 0;
+    const color = getTypeColor(entity.entityType);
+
+    const obsHtml = entity.observations.length > 0
+      ? entity.observations.map(o => `<div class="gi-obs-item">${escapeHtml(o)}</div>`).join('')
+      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">No observations</div>';
+    const relHtml = related.length > 0
+      ? related.map(r => {
+        const dir = r.from === nodeId;
+        const other = dir ? r.to : r.from;
+        return `<div class="gi-rel-item">
+          <span class="gi-rel-arrow">${dir ? '\u2192' : '\u2190'}</span>
+          <span class="gi-rel-type">${escapeHtml(r.relationType)}</span>
+          <span class="gi-rel-target" data-inspector-nav="${escapeHtml(other)}">${escapeHtml(other)}</span>
+        </div>`;
+      }).join('')
+      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">No relations</div>';
+
+    inspector.innerHTML = `
+      <div class="gi-header">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+          <div class="gi-name">${escapeHtml(nodeId)}</div>
+        </div>
+        <div class="gi-type">${escapeHtml(entity.entityType)}</div>
+      </div>
+      <div class="gi-stats">
+        <div class="gi-stat"><div class="gi-stat-value">${deg}</div><div class="gi-stat-label">Connections</div></div>
+        <div class="gi-stat"><div class="gi-stat-value">${entity.observations.length}</div><div class="gi-stat-label">Evidence</div></div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">Observations <span class="gi-section-count">${entity.observations.length}</span></div>
+        ${obsHtml}
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">Relations <span class="gi-section-count">${related.length}</span></div>
+        ${relHtml}
+      </div>
+    `;
+
+    // Navigation: click relation target to focus
+    inspector.querySelectorAll('[data-inspector-nav]').forEach(el => {
+      el.addEventListener('click', () => {
+        const targetId = el.dataset.inspectorNav;
+        if (entityMap[targetId]) {
+          selectedNodeId = targetId;
+          // If target is visible in current graph, select it
+          if (cy && cy.$id(targetId).length > 0) {
+            cy.$(':selected').unselect();
+            cy.$id(targetId).select();
+            cy.animate({ center: { eles: cy.$id(targetId) }, duration: 300 });
+          } else {
+            // Switch focus to target
+            focusEntity = targetId;
+            showFullGraph = false;
+            rebuildGraph();
+          }
+          showInspector(targetId);
+        }
       });
     });
-    isSettled = true;
-  }
-
-  function applyLayout(layout) {
-    currentLayout = layout;
-    if (layout === 'circular') applyCircularLayout();
-    else if (layout === 'concentric') applyConcentricLayout();
-    else applyForceLayout();
-    cam = { x: 0, y: 0, zoom: 1 };
-    if (nodes.length > 60) cam.zoom = 0.55;
-    else if (nodes.length > 30) cam.zoom = 0.7;
-    updateStatusBar();
-  }
-
-  // --- Physics (simple force-directed, no galaxy clustering) ---
-  const REPULSION = 3000;
-  const ATTRACTION = 0.006;
-  const DAMPING = 0.85;
-  const IDEAL_DIST = 70;
-  const CENTER_PULL = 0.0005;
-
-  let hoveredNode = null;
-  let selectedNode = null;
-  let dragNode = null;
-  let panStart = null;
-  let simTick = 0;
-  let isSettled = false;
-  const SETTLE_THRESHOLD = 0.12;
-  let settleCountdown = 0;
-
-  function simulate() {
-    if (currentLayout !== 'force') return;
-    simTick++;
-    const warmup = Math.min(1, simTick / 80);
-
-    // Node repulsion
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        if (!nodes[i]._visible || !nodes[j]._visible) continue;
-        const a = nodes[i], b = nodes[j];
-        let dx = b.x - a.x, dy = b.y - a.y;
-        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        let force = (REPULSION * warmup) / (dist * dist);
-        let fx = (dx / dist) * force, fy = (dy / dist) * force;
-        a.vx -= fx; a.vy -= fy;
-        b.vx += fx; b.vy += fy;
-      }
-    }
-
-    // Edge attraction
-    for (const edge of edges) {
-      if (!edge.source._visible || !edge.target._visible) continue;
-      let dx = edge.target.x - edge.source.x, dy = edge.target.y - edge.source.y;
-      let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      let force = (dist - IDEAL_DIST) * ATTRACTION * warmup;
-      let fx = (dx / dist) * force, fy = (dy / dist) * force;
-      edge.source.vx += fx; edge.source.vy += fy;
-      edge.target.vx -= fx; edge.target.vy -= fy;
-    }
-
-    // Gentle center pull
-    for (const node of nodes) {
-      if (!node._visible) continue;
-      node.vx -= node.x * CENTER_PULL;
-      node.vy -= node.y * CENTER_PULL;
-    }
-
-    let totalMovement = 0;
-    for (const node of nodes) {
-      if (node === dragNode || !node._visible) continue;
-      node.vx *= DAMPING; node.vy *= DAMPING;
-      const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-      const maxV = simTick < 40 ? 1.5 : 3.0;
-      if (speed > maxV) { node.vx *= maxV / speed; node.vy *= maxV / speed; }
-      node.x += node.vx; node.y += node.vy;
-      totalMovement += Math.abs(node.vx) + Math.abs(node.vy);
-    }
-
-    if (simTick > 100) {
-      const avg = totalMovement / Math.max(1, nodes.length);
-      if (avg < SETTLE_THRESHOLD) { settleCountdown++; if (settleCountdown > 30) isSettled = true; }
-      else settleCountdown = 0;
-    }
-  }
-
-  // --- Draw (clean, theme-aware, no cosmic effects) ---
-  function draw() {
-    ctx.clearRect(0, 0, W, H + 28);
-
-    // Theme-aware background — solid color, not cosmic gradient
-    const light = isLight();
-    ctx.fillStyle = light ? '#F7F2FA' : '#0F0F17';
-    ctx.fillRect(0, 0, W, H);
-
-    // Subtle grid dots
-    const gridSize = 40 * cam.zoom;
-    if (gridSize > 15) {
-      ctx.fillStyle = light ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.03)';
-      const offX = (W / 2 - cam.x * cam.zoom) % gridSize;
-      const offY = (H / 2 - cam.y * cam.zoom) % gridSize;
-      for (let gx = offX; gx < W; gx += gridSize) {
-        for (let gy = offY; gy < H; gy += gridSize) {
-          ctx.fillRect(gx - 0.5, gy - 0.5, 1, 1);
-        }
-      }
-    }
-
-    const textColor = light ? '#1C1B1F' : '#E6E1E5';
-    const textMuted = light ? '#79747E' : '#79747E';
-
-    // --- Edges: thin, single color, no glow ---
-    for (const edge of edges) {
-      if (!edge.source._visible || !edge.target._visible) continue;
-      const isActive = (hoveredNode && (edge.source === hoveredNode || edge.target === hoveredNode))
-        || (selectedNode && (edge.source === selectedNode || edge.target === selectedNode));
-      const s = worldToScreen(edge.source.x, edge.source.y);
-      const t2 = worldToScreen(edge.target.x, edge.target.y);
-
-      if (edge.source._dimmed && edge.target._dimmed) { ctx.globalAlpha = 0.08; }
-      else if (edge.source._dimmed || edge.target._dimmed) { ctx.globalAlpha = 0.15; }
-
-      ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(t2.x, t2.y);
-      ctx.strokeStyle = isActive
-        ? (light ? 'rgba(103,80,164,0.6)' : 'rgba(208,188,255,0.5)')
-        : (light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)');
-      ctx.lineWidth = isActive ? 2 : 1;
-      ctx.stroke();
-
-      // Arrow head
-      const dx = t2.x - s.x, dy = t2.y - s.y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 20) {
-        const arrowLen = 6 * cam.zoom;
-        const nx = dx / len, ny = dy / len;
-        const tipX = t2.x - nx * (edge.target.radius * cam.zoom + 2);
-        const tipY = t2.y - ny * (edge.target.radius * cam.zoom + 2);
-        ctx.beginPath();
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX - nx * arrowLen + ny * arrowLen * 0.4, tipY - ny * arrowLen - nx * arrowLen * 0.4);
-        ctx.lineTo(tipX - nx * arrowLen - ny * arrowLen * 0.4, tipY - ny * arrowLen + nx * arrowLen * 0.4);
-        ctx.closePath();
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.fill();
-      }
-
-      // Active edge: relation type label
-      if (isActive && len > 40) {
-        const mx = (s.x + t2.x) / 2, my = (s.y + t2.y) / 2;
-        ctx.font = `500 ${Math.max(9, 10 * cam.zoom)}px Inter, sans-serif`;
-        ctx.fillStyle = light ? 'rgba(103,80,164,0.7)' : 'rgba(208,188,255,0.6)';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(edge.type, mx, my - 4);
-        ctx.textBaseline = 'alphabetic';
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // --- Nodes: solid circle with 1px border, no glow ---
-    for (const node of nodes) {
-      if (!node._visible) continue;
-      const active = node === hoveredNode || node === selectedNode;
-      const p = worldToScreen(node.x, node.y);
-      const r = node.radius * cam.zoom;
-
-      if (p.x + r * 2 < 0 || p.x - r * 2 > W || p.y + r * 2 < 0 || p.y - r * 2 > H) continue;
-      if (node._dimmed) { ctx.globalAlpha = 0.15; }
-
-      // Filled circle
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = hexRGBA(node.color, active ? 1.0 : 0.8);
-      ctx.fill();
-
-      // Border
-      ctx.strokeStyle = active
-        ? (light ? 'rgba(103,80,164,0.8)' : 'rgba(208,188,255,0.8)')
-        : (light ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)');
-      ctx.lineWidth = active ? 2 : 1;
-      ctx.stroke();
-
-      // Selection ring
-      if (node === selectedNode) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
-        ctx.strokeStyle = light ? 'rgba(103,80,164,0.4)' : 'rgba(208,188,255,0.4)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 3]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Labels: always visible at reasonable zoom, not just on hover
-      const showLabel = active || cam.zoom > 0.6 || nodes.length < 30;
-      if (showLabel) {
-        const baseFontSize = active ? 12 : 10;
-        const fontSize = Math.max(8, baseFontSize * cam.zoom);
-        ctx.font = `${active ? '600' : '400'} ${fontSize}px Inter, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        const labelText = node.id.length > 22 && !active ? node.id.slice(0, 20) + '\u2026' : node.id;
-        const labelY = p.y + r + 3 * cam.zoom;
-
-        // Text shadow for readability
-        ctx.fillStyle = light ? 'rgba(255,255,255,0.8)' : 'rgba(15,15,23,0.8)';
-        ctx.fillText(labelText, p.x + 0.5, labelY + 0.5);
-        ctx.fillStyle = node._dimmed ? textMuted : textColor;
-        ctx.fillText(labelText, p.x, labelY);
-        ctx.textBaseline = 'alphabetic';
-      }
-
-      ctx.globalAlpha = 1;
-    }
   }
 
   // --- Filter panel ---
@@ -1332,12 +1367,37 @@ function renderGraph(graph) {
       </div>
     `;
 
+    const scopeHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">Scope</div>
+        <div class="gfp-radio-group">
+          <button class="gfp-radio${!showFullGraph ? ' active' : ''}" data-scope="focus">
+            <span class="gfp-radio-dot"></span> Neighborhood
+          </button>
+          <button class="gfp-radio${showFullGraph ? ' active' : ''}" data-scope="full">
+            <span class="gfp-radio-dot"></span> Full Graph
+          </button>
+        </div>
+      </div>
+    `;
+
+    const depthHtml = `
+      <div class="gfp-section" id="gfp-depth-section"${showFullGraph ? ' style="display:none"' : ''}>
+        <div class="gfp-label">Depth</div>
+        <div class="gfp-depth-row">
+          <button class="gfp-depth-btn${depth === 1 ? ' active' : ''}" data-depth="1">1</button>
+          <button class="gfp-depth-btn${depth === 2 ? ' active' : ''}" data-depth="2">2</button>
+          <button class="gfp-depth-btn${depth === 3 ? ' active' : ''}" data-depth="3">3</button>
+        </div>
+      </div>
+    `;
+
     const viewHtml = `
       <div class="gfp-section">
         <div class="gfp-label">View</div>
         <div class="gfp-radio-group">
-          <button class="gfp-radio${currentView === 'graph' ? ' active' : ''}" data-view="graph">
-            <span class="gfp-radio-dot"></span> Graph
+          <button class="gfp-radio${currentView === 'topology' ? ' active' : ''}" data-view="topology">
+            <span class="gfp-radio-dot"></span> Topology
           </button>
           <button class="gfp-radio${currentView === 'table' ? ' active' : ''}" data-view="table">
             <span class="gfp-radio-dot"></span> Table
@@ -1350,14 +1410,11 @@ function renderGraph(graph) {
       <div class="gfp-section" id="gfp-layout-section"${currentView === 'table' ? ' style="display:none"' : ''}>
         <div class="gfp-label">Layout</div>
         <div class="gfp-radio-group">
-          <button class="gfp-radio${currentLayout === 'force' ? ' active' : ''}" data-layout="force">
-            <span class="gfp-radio-dot"></span> Force-Directed
+          <button class="gfp-radio${currentLayout === 'dagre-lr' ? ' active' : ''}" data-layout="dagre-lr">
+            <span class="gfp-radio-dot"></span> Left \u2192 Right
           </button>
-          <button class="gfp-radio${currentLayout === 'circular' ? ' active' : ''}" data-layout="circular">
-            <span class="gfp-radio-dot"></span> Circular
-          </button>
-          <button class="gfp-radio${currentLayout === 'concentric' ? ' active' : ''}" data-layout="concentric">
-            <span class="gfp-radio-dot"></span> Concentric
+          <button class="gfp-radio${currentLayout === 'dagre-tb' ? ' active' : ''}" data-layout="dagre-tb">
+            <span class="gfp-radio-dot"></span> Top \u2192 Bottom
           </button>
         </div>
       </div>
@@ -1380,21 +1437,25 @@ function renderGraph(graph) {
       </div>
     `;
 
-    const statsHtml = `
-      <div class="gfp-section">
-        <div class="gfp-label">Statistics</div>
-        <div style="font-size:11px;color:var(--text-secondary);line-height:1.8;">
-          Visible: ${nodes.filter(n => n._visible).length} / ${allNodes.length} nodes<br>
-          Edges: ${edges.filter(e => e.source._visible && e.target._visible).length}<br>
-          Types: ${activeTypes.size} / ${Object.keys(typeCounts).length}<br>
-          Density: ${nodes.length > 1 ? (2 * edges.length / (nodes.length * (nodes.length - 1))).toFixed(3) : '0'}
-        </div>
-      </div>
-    `;
+    panel.innerHTML = searchHtml + scopeHtml + depthHtml + viewHtml + layoutHtml + filterHtml;
 
-    panel.innerHTML = searchHtml + viewHtml + layoutHtml + filterHtml + statsHtml;
+    // Bind scope
+    panel.querySelectorAll('[data-scope]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        showFullGraph = btn.dataset.scope === 'full';
+        rebuildGraph();
+      });
+    });
 
-    // Bind view switchers
+    // Bind depth
+    panel.querySelectorAll('[data-depth]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        depth = parseInt(btn.dataset.depth);
+        rebuildGraph();
+      });
+    });
+
+    // Bind view
     panel.querySelectorAll('[data-view]').forEach(btn => {
       btn.addEventListener('click', () => {
         currentView = btn.dataset.view;
@@ -1403,12 +1464,14 @@ function renderGraph(graph) {
       });
     });
 
-    // Bind layout switchers
+    // Bind layout
     panel.querySelectorAll('[data-layout]').forEach(btn => {
       btn.addEventListener('click', () => {
-        applyLayout(btn.dataset.layout);
+        currentLayout = btn.dataset.layout;
+        if (cy) {
+          cy.layout(getLayoutConfig()).run();
+        }
         renderFilterPanel();
-        draw();
       });
     });
 
@@ -1418,59 +1481,68 @@ function renderGraph(graph) {
         const type = btn.dataset.typeFilter;
         if (activeTypes.has(type)) activeTypes.delete(type);
         else activeTypes.add(type);
-        applyFilters();
-        renderFilterPanel();
-        draw();
+        rebuildGraph();
       });
     });
 
-    // Bind search
+    // Bind search — focus on entity and navigate
     const searchInput = document.getElementById('gfp-search');
     if (searchInput) {
       searchInput.addEventListener('input', () => {
         const q = searchInput.value.toLowerCase();
-        if (!q) {
-          allNodes.forEach(n => { n._dimmed = false; });
-        } else {
-          allNodes.forEach(n => {
-            n._dimmed = !n.id.toLowerCase().includes(q) && !n.type.toLowerCase().includes(q);
-          });
+        if (!q || !cy) {
+          if (cy) cy.elements().removeClass('dimmed');
+          return;
         }
-        draw();
+        cy.nodes().forEach(n => {
+          const match = n.data('fullLabel').toLowerCase().includes(q) || n.data('type').toLowerCase().includes(q);
+          if (match) { n.removeClass('dimmed'); } else { n.addClass('dimmed'); }
+        });
+        cy.edges().forEach(e => {
+          if (e.source().hasClass('dimmed') && e.target().hasClass('dimmed')) e.addClass('dimmed');
+          else e.removeClass('dimmed');
+        });
+      });
+
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const q = searchInput.value.toLowerCase();
+          const match = graph.entities.find(ent => ent.name.toLowerCase().includes(q));
+          if (match) {
+            focusEntity = match.name;
+            showFullGraph = false;
+            rebuildGraph();
+          }
+        }
       });
     }
   }
 
-  function applyFilters() {
-    allNodes.forEach(n => {
-      n._visible = activeTypes.has(n.type);
-      n._dimmed = false;
-    });
-    nodes = allNodes.filter(n => n._visible);
-    edges = allEdges.filter(e => e.source._visible && e.target._visible);
-    updateStatusBar();
-  }
-
   function switchView() {
-    const canvasContainer = document.getElementById('graph-container');
+    const graphContainer = document.getElementById('graph-container');
     const tableContainer = document.getElementById('graph-table-container');
     if (currentView === 'table') {
-      canvasContainer.style.display = 'none';
+      graphContainer.style.display = 'none';
       tableContainer.style.display = 'flex';
       renderTable();
     } else {
-      canvasContainer.style.display = '';
+      graphContainer.style.display = '';
       tableContainer.style.display = 'none';
     }
-    const layoutSection = document.getElementById('gfp-layout-section');
-    if (layoutSection) layoutSection.style.display = currentView === 'table' ? 'none' : '';
   }
 
   // --- Table view ---
   function renderTable() {
     const tc = document.getElementById('graph-table-container');
     if (!tc) return;
-    const sorted = [...nodes].filter(n => n._visible).sort((a, b) => b.degree - a.degree);
+    let entities;
+    if (showFullGraph) {
+      entities = graph.entities.filter(e => activeTypes.has(e.entityType));
+    } else {
+      const sub = getNeighborhood(focusEntity, depth);
+      entities = [...sub.nodeNames].filter(n => activeTypes.has(entityMap[n]?.entityType)).map(n => entityMap[n]).filter(Boolean);
+    }
+    const sorted = entities.sort((a, b) => (degreeMap[b.name] || 0) - (degreeMap[a.name] || 0));
     tc.innerHTML = `
       <table class="graph-table">
         <thead>
@@ -1482,12 +1554,12 @@ function renderGraph(graph) {
           </tr>
         </thead>
         <tbody>
-          ${sorted.map(n => `
-            <tr data-table-node="${escapeHtml(n.id)}">
-              <td class="entity-name"><span class="entity-type-dot" style="background:${n.color}"></span>${escapeHtml(n.id)}</td>
-              <td>${escapeHtml(n.type)}</td>
-              <td>${n.degree}</td>
-              <td>${n.observations.length}</td>
+          ${sorted.map(e => `
+            <tr data-table-node="${escapeHtml(e.name)}">
+              <td class="entity-name"><span class="entity-type-dot" style="background:${getTypeColor(e.entityType)}"></span>${escapeHtml(e.name)}</td>
+              <td>${escapeHtml(e.entityType)}</td>
+              <td>${degreeMap[e.name] || 0}</td>
+              <td>${e.observations.length}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -1495,199 +1567,36 @@ function renderGraph(graph) {
     `;
     tc.querySelectorAll('[data-table-node]').forEach(row => {
       row.addEventListener('click', () => {
-        const node = allNodes.find(n => n.id === row.dataset.tableNode);
-        if (node) { selectedNode = node; showInspector(node); }
-      });
-    });
-  }
-
-  // --- Inspector (right panel) ---
-  function showInspector(node) {
-    const inspector = document.getElementById('graph-inspector');
-    if (!inspector) return;
-    if (!node) {
-      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>Select a node to inspect</div>';
-      return;
-    }
-    const related = allEdges.filter(e => e.source === node || e.target === node);
-    const obsHtml = node.observations.length > 0
-      ? node.observations.map(o => `<div class="gi-obs-item">${escapeHtml(o)}</div>`).join('')
-      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">No observations</div>';
-    const relHtml = related.length > 0
-      ? related.map(e => {
-        const dir = e.source === node;
-        const other = dir ? e.target : e.source;
-        return `<div class="gi-rel-item">
-          <span class="gi-rel-arrow">${dir ? '\u2192' : '\u2190'}</span>
-          <span class="gi-rel-type">${escapeHtml(e.type)}</span>
-          <span class="gi-rel-target" data-inspector-nav="${escapeHtml(other.id)}">${escapeHtml(other.id)}</span>
-        </div>`;
-      }).join('')
-      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">No relations</div>';
-
-    inspector.innerHTML = `
-      <div class="gi-header">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-          <span style="width:10px;height:10px;border-radius:50%;background:${node.color};flex-shrink:0;"></span>
-          <div class="gi-name">${escapeHtml(node.id)}</div>
-        </div>
-        <div class="gi-type">${escapeHtml(node.type)}</div>
-      </div>
-      <div class="gi-stats">
-        <div class="gi-stat"><div class="gi-stat-value">${related.length}</div><div class="gi-stat-label">Connections</div></div>
-        <div class="gi-stat"><div class="gi-stat-value">${node.observations.length}</div><div class="gi-stat-label">Evidence</div></div>
-      </div>
-      <div class="gi-section">
-        <div class="gi-section-title">Observations <span class="gi-section-count">${node.observations.length}</span></div>
-        ${obsHtml}
-      </div>
-      <div class="gi-section">
-        <div class="gi-section-title">Relations <span class="gi-section-count">${related.length}</span></div>
-        ${relHtml}
-      </div>
-    `;
-
-    // Navigation: click a related entity to inspect it
-    inspector.querySelectorAll('[data-inspector-nav]').forEach(el => {
-      el.addEventListener('click', () => {
-        const target = allNodes.find(n => n.id === el.dataset.inspectorNav);
-        if (target) {
-          selectedNode = target;
-          cam.x = target.x; cam.y = target.y;
-          showInspector(target);
-          draw();
-        }
+        selectedNodeId = row.dataset.tableNode;
+        showInspector(selectedNodeId);
       });
     });
   }
 
   // --- Status bar ---
-  function updateStatusBar() {
+  function updateStatusBar(nodeCount, edgeCount) {
     const gsNodes = document.getElementById('gs-nodes');
     const gsEdges = document.getElementById('gs-edges');
     const gsLayout = document.getElementById('gs-layout');
-    if (gsNodes) gsNodes.textContent = `${nodes.filter(n => n._visible).length} nodes`;
-    if (gsEdges) gsEdges.textContent = `${edges.filter(e => e.source._visible && e.target._visible).length} edges`;
-    if (gsLayout) gsLayout.textContent = currentLayout;
+    const gsScope = document.getElementById('gs-scope');
+    if (gsNodes) gsNodes.textContent = `${nodeCount || 0} nodes`;
+    if (gsEdges) gsEdges.textContent = `${edgeCount || 0} edges`;
+    if (gsLayout) gsLayout.textContent = currentLayout === 'dagre-tb' ? 'TB' : 'LR';
+    if (gsScope) gsScope.textContent = showFullGraph ? 'full' : `${depth}-hop`;
   }
 
-  // --- Animation loop ---
-  let animFrame = null;
-  function tick() {
-    if (!isSettled && currentLayout === 'force') simulate();
-    draw();
-    animFrame = requestAnimationFrame(tick);
-  }
-
-  function wakeUp() {
-    if (currentLayout !== 'force') return;
-    isSettled = false; settleCountdown = 0;
-    nodes.forEach(n => { n.vx += (Math.random() - 0.5) * 0.3; n.vy += (Math.random() - 0.5) * 0.3; });
-  }
-
-  // --- Mouse interaction ---
-  canvas.addEventListener('mousemove', (e) => {
-    const r = canvas.getBoundingClientRect();
-    const sx = e.clientX - r.left, sy = e.clientY - r.top;
-
-    if (panStart) {
-      cam.x -= e.movementX / cam.zoom;
-      cam.y -= e.movementY / cam.zoom;
-      draw();
-      return;
-    }
-
-    if (dragNode) {
-      const w = screenToWorld(sx, sy);
-      dragNode.x = w.x; dragNode.y = w.y;
-      dragNode.vx = 0; dragNode.vy = 0;
-      draw();
-      return;
-    }
-
-    const w = screenToWorld(sx, sy);
-    let found = null;
-    for (const node of nodes) {
-      if (!node._visible) continue;
-      const dx = w.x - node.x, dy = w.y - node.y;
-      if (dx * dx + dy * dy < (node.radius + 4) * (node.radius + 4)) { found = node; break; }
-    }
-    if (found !== hoveredNode) {
-      hoveredNode = found;
-      canvas.style.cursor = found ? 'pointer' : 'grab';
-      if (found) {
-        const tt = document.getElementById('graph-tooltip');
-        tt.querySelector('.graph-tooltip-name').textContent = found.id;
-        tt.querySelector('.graph-tooltip-type').textContent = `${found.type} \u00B7 ${found.observations.length} obs \u00B7 ${found.degree} conn`;
-        tt.style.left = (sx + 16) + 'px';
-        tt.style.top = (sy - 20) + 'px';
-        tt.classList.add('visible');
-      } else {
-        document.getElementById('graph-tooltip').classList.remove('visible');
-      }
-      draw();
-    }
-  });
-
-  canvas.addEventListener('mousedown', (e) => {
-    if (hoveredNode) { dragNode = hoveredNode; canvas.style.cursor = 'grabbing'; }
-    else { panStart = { x: e.clientX, y: e.clientY }; canvas.style.cursor = 'grabbing'; }
-  });
-
-  canvas.addEventListener('mouseup', () => {
-    if (dragNode) { dragNode = null; canvas.style.cursor = hoveredNode ? 'pointer' : 'grab'; wakeUp(); }
-    if (panStart) { panStart = null; canvas.style.cursor = hoveredNode ? 'pointer' : 'grab'; }
-  });
-
-  canvas.addEventListener('click', () => {
-    if (hoveredNode) {
-      selectedNode = hoveredNode;
-      showInspector(selectedNode);
-      draw();
-    } else {
-      selectedNode = null;
-      showInspector(null);
-      draw();
-    }
-  });
-
-  canvas.addEventListener('mouseleave', () => {
-    hoveredNode = null; dragNode = null; panStart = null;
-    document.getElementById('graph-tooltip').classList.remove('visible');
-    draw();
-  });
-
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.max(0.15, Math.min(cam.zoom * factor, 5));
-    const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const wx = (mx - W / 2) / cam.zoom + cam.x;
-    const wy = (my - H / 2) / cam.zoom + cam.y;
-    cam.zoom = newZoom;
-    cam.x = wx - (mx - W / 2) / cam.zoom;
-    cam.y = wy - (my - H / 2) / cam.zoom;
-    draw();
-  }, { passive: false });
-
-  // Zoom controls in status bar
+  // --- Zoom controls ---
   const gzIn = document.getElementById('gz-in');
   const gzOut = document.getElementById('gz-out');
-  const gzReset = document.getElementById('gz-reset');
-  if (gzIn) gzIn.onclick = () => { cam.zoom = Math.min(cam.zoom * 1.3, 5); draw(); };
-  if (gzOut) gzOut.onclick = () => { cam.zoom = Math.max(cam.zoom / 1.3, 0.15); draw(); };
-  if (gzReset) gzReset.onclick = () => { cam = { x: 0, y: 0, zoom: 1 }; draw(); };
+  const gzFit = document.getElementById('gz-fit');
+  if (gzIn) gzIn.onclick = () => { if (cy) cy.zoom(cy.zoom() * 1.3); };
+  if (gzOut) gzOut.onclick = () => { if (cy) cy.zoom(cy.zoom() / 1.3); };
+  if (gzFit) gzFit.onclick = () => { if (cy) cy.fit(undefined, 30); };
 
-  // Save state for external access
-  _graphState = { nodes: allNodes, edges: allEdges, selectedNode, showInspector, draw };
-
-  // Initialize
-  applyLayout(currentLayout);
+  // --- Initialize ---
+  _graphState = { graph, entityMap, degreeMap, typeColors, showInspector };
+  initCytoscape();
   renderFilterPanel();
-  updateStatusBar();
-  canvas.style.cursor = 'grab';
-  tick();
 }
 
 // ============================================================
