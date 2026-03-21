@@ -287,53 +287,48 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
     }
   }, [project, exit, onExitForInteractive]);
 
-  // ── Action handlers for Cleanup and Ingest views ──────────
+  // ── Action handlers for Cleanup, Ingest, Background, Dashboard ──
+
   const handleCleanupAction = useCallback(async (action: string) => {
     setActionStatus('Executing...');
     try {
       const { detectProject } = await import('../../project/detector.js');
       const { getProjectDataDir } = await import('../../store/persistence.js');
       const proj = detectProject(process.cwd());
-
       switch (action) {
-        case '1': { // Uninstall project artifacts
+        case '1': {
           if (!proj) { setActionStatus('No project detected.'); return; }
           try {
-            const { execSync } = await import('node:child_process');
-            execSync('memorix git-hook-uninstall', { cwd: process.cwd(), stdio: 'pipe' });
+            const hookMod = await import('../commands/git-hook-uninstall.js');
+            await hookMod.default.run?.({ args: { _: [], cwd: process.cwd() }, rawArgs: [], cmd: hookMod.default } as any);
             setActionStatus('Project artifacts uninstalled.');
           } catch { setActionStatus('No artifacts to uninstall.'); }
           break;
         }
-        case '2': { // Purge current project memory
+        case '2': {
           if (!proj) { setActionStatus('No project detected.'); return; }
           const dataDir = await getProjectDataDir(proj.id);
-          const fs = await import('node:fs');
-          const path = await import('node:path');
-          const obsPath = path.join(dataDir, 'observations.json');
-          if (fs.existsSync(obsPath)) {
-            fs.writeFileSync(obsPath, '[]');
-            setActionStatus(`Purged memory for ${proj.name}. Observations reset to empty.`);
-          } else {
-            setActionStatus('No observations file found.');
-          }
+          const fsm = await import('node:fs');
+          const pathm = await import('node:path');
+          const obsPath = pathm.join(dataDir, 'observations.json');
+          if (fsm.existsSync(obsPath)) {
+            fsm.writeFileSync(obsPath, '[]');
+            setActionStatus(`Purged memory for ${proj.name}.`);
+          } else { setActionStatus('No observations file found.'); }
           break;
         }
-        case '3': { // Purge ALL memory
+        case '3': {
           const dataDir = await getProjectDataDir('_');
-          const fs = await import('node:fs');
-          const path = await import('node:path');
-          const obsPath = path.join(dataDir, 'observations.json');
-          if (fs.existsSync(obsPath)) {
-            fs.writeFileSync(obsPath, '[]');
-            setActionStatus('All memory purged. Observations reset to empty.');
-          } else {
-            setActionStatus('No observations file found.');
-          }
+          const fsm = await import('node:fs');
+          const pathm = await import('node:path');
+          const obsPath = pathm.join(dataDir, 'observations.json');
+          if (fsm.existsSync(obsPath)) {
+            fsm.writeFileSync(obsPath, '[]');
+            setActionStatus('All memory purged.');
+          } else { setActionStatus('No observations file found.'); }
           break;
         }
-        default:
-          setActionStatus('');
+        default: setActionStatus('');
       }
     } catch (err) {
       setActionStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -342,107 +337,85 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
 
   const handleIngestAction = useCallback(async (action: string) => {
     setActionStatus('Executing...');
+    const cwd = process.cwd();
     try {
       switch (action) {
-        case '1': { // Ingest recent commits
-          try {
-            const { execSync } = await import('node:child_process');
-            const out = execSync('memorix ingest-commit --last 5', { cwd: process.cwd(), stdio: 'pipe' });
-            setActionStatus(`Ingested recent commits. ${out.toString().trim()}`);
-          } catch (e) {
-            setActionStatus(`Ingest failed: ${e instanceof Error ? e.message : String(e)}`);
-          }
+        case '1': {
+          const { getRecentCommits, ingestCommit } = await import('../../git/extractor.js');
+          const commits = getRecentCommits(cwd, 1);
+          if (commits.length === 0) { setActionStatus('No commits found.'); break; }
+          const result = await ingestCommit(commits[0]);
+          setActionStatus(result ? `Ingested: ${commits[0].subject.slice(0, 50)}` : 'Commit skipped (noise filter).');
           break;
         }
-        case '2': { // Ingest git log
-          try {
-            const { execSync } = await import('node:child_process');
-            const out = execSync('memorix ingest-log --last 20', { cwd: process.cwd(), stdio: 'pipe' });
-            setActionStatus(`Ingested git log. ${out.toString().trim()}`);
-          } catch (e) {
-            setActionStatus(`Ingest failed: ${e instanceof Error ? e.message : String(e)}`);
-          }
+        case '2': {
+          const { getRecentCommits, ingestCommit } = await import('../../git/extractor.js');
+          const commits = getRecentCommits(cwd, 20);
+          if (commits.length === 0) { setActionStatus('No commits found.'); break; }
+          let ingested = 0;
+          for (const c of commits) { if (await ingestCommit(c)) ingested++; }
+          setActionStatus(`Ingested ${ingested}/${commits.length} commits.`);
           break;
         }
-        case '3': { // Install post-commit hook
-          try {
-            const { execSync } = await import('node:child_process');
-            execSync('memorix git-hook-install', { cwd: process.cwd(), stdio: 'pipe' });
-            setActionStatus('Post-commit hook installed.');
-          } catch (e) {
-            setActionStatus(`Hook install failed: ${e instanceof Error ? e.message : String(e)}`);
-          }
+        case '3': {
+          const hookMod = await import('../commands/git-hook-install.js');
+          await hookMod.default.run?.({ args: { _: [], cwd }, rawArgs: [], cmd: hookMod.default } as any);
+          setActionStatus('Post-commit hook installed.');
           break;
         }
-        case '4': { // Uninstall post-commit hook
-          try {
-            const { execSync } = await import('node:child_process');
-            execSync('memorix git-hook-uninstall', { cwd: process.cwd(), stdio: 'pipe' });
-            setActionStatus('Post-commit hook uninstalled.');
-          } catch (e) {
-            setActionStatus(`Hook uninstall failed: ${e instanceof Error ? e.message : String(e)}`);
-          }
+        case '4': {
+          const hookMod = await import('../commands/git-hook-uninstall.js');
+          await hookMod.default.run?.({ args: { _: [], cwd }, rawArgs: [], cmd: hookMod.default } as any);
+          setActionStatus('Post-commit hook uninstalled.');
           break;
         }
-        default:
-          setActionStatus('');
+        default: setActionStatus('');
       }
     } catch (err) {
       setActionStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, []);
 
-  // ── Action handlers for Background and Dashboard views ─────
   const handleBackgroundAction = useCallback(async (action: string) => {
     setStatusMsg(null);
     try {
       const { execSync } = await import('node:child_process');
       if (background.running) {
         switch (action) {
-          case 'w': // Open dashboard
+          case 'w':
             if (background.dashboard) {
               try { execSync(`start "" "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
                 try { execSync(`open "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
-                  try { execSync(`xdg-open "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
-                    setStatusMsg({ text: `Open: ${background.dashboard}`, type: 'info' });
-                  }
+                  try { execSync(`xdg-open "${background.dashboard}"`, { stdio: 'pipe' }); } catch { /* */ }
                 }
               }
               setStatusMsg({ text: `Opening ${background.dashboard}`, type: 'success' });
             }
             break;
-          case '1': // Restart
-            try {
-              execSync('memorix background restart', { stdio: 'pipe', timeout: 15000 });
-              setStatusMsg({ text: 'Control plane restarted.', type: 'success' });
-            } catch (e) { setStatusMsg({ text: `Restart failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
+          case '1':
+            try { execSync('memorix background restart', { stdio: 'pipe', timeout: 15000 }); setStatusMsg({ text: 'Restarted.', type: 'success' }); }
+            catch (e) { setStatusMsg({ text: `Restart failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
             break;
-          case '2': // Stop
-            try {
-              execSync('memorix background stop', { stdio: 'pipe', timeout: 10000 });
-              setStatusMsg({ text: 'Control plane stopped.', type: 'success' });
-            } catch (e) { setStatusMsg({ text: `Stop failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
+          case '2':
+            try { execSync('memorix background stop', { stdio: 'pipe', timeout: 10000 }); setStatusMsg({ text: 'Stopped.', type: 'success' }); }
+            catch (e) { setStatusMsg({ text: `Stop failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
             break;
-          case '3': // Logs
-            setStatusMsg({ text: 'Run: memorix background logs (in separate terminal)', type: 'info' });
+          case '3':
+            setStatusMsg({ text: 'Run: memorix background logs (separate terminal)', type: 'info' });
             break;
         }
       } else {
         switch (action) {
-          case '1': // Start
-            try {
-              execSync('memorix background start', { stdio: 'pipe', timeout: 15000 });
-              setStatusMsg({ text: 'Control plane started.', type: 'success' });
-            } catch (e) { setStatusMsg({ text: `Start failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
+          case '1':
+            try { execSync('memorix background start', { stdio: 'pipe', timeout: 15000 }); setStatusMsg({ text: 'Started.', type: 'success' }); }
+            catch (e) { setStatusMsg({ text: `Start failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
             break;
-          case '2': // Standalone dashboard
-            setStatusMsg({ text: 'Run: memorix dashboard (in separate terminal)', type: 'info' });
+          case '2':
+            setStatusMsg({ text: 'Run: memorix dashboard (separate terminal)', type: 'info' });
             break;
         }
       }
-      // Refresh background status after action
-      const bg = await getBackgroundStatus();
-      setBackground(bg);
+      setBackground(await getBackgroundStatus());
     } catch (err) {
       setStatusMsg({ text: `Error: ${err instanceof Error ? err.message : String(err)}`, type: 'error' });
     }
@@ -453,34 +426,22 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
     try {
       const { execSync } = await import('node:child_process');
       if (background.healthy && background.dashboard) {
-        switch (action) {
-          case '1': // Open dashboard URL
-            try { execSync(`start "" "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
-              try { execSync(`open "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
-                try { execSync(`xdg-open "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
-                  setStatusMsg({ text: `Open: ${background.dashboard}`, type: 'info' });
-                }
-              }
+        if (action === '1') {
+          try { execSync(`start "" "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
+            try { execSync(`open "${background.dashboard}"`, { stdio: 'pipe' }); } catch {
+              try { execSync(`xdg-open "${background.dashboard}"`, { stdio: 'pipe' }); } catch { /* */ }
             }
-            setStatusMsg({ text: `Opening ${background.dashboard}`, type: 'success' });
-            break;
-          case '2': // Standalone
-            setStatusMsg({ text: 'Run: memorix dashboard (in separate terminal)', type: 'info' });
-            break;
+          }
+          setStatusMsg({ text: `Opening ${background.dashboard}`, type: 'success' });
+        } else if (action === '2') {
+          setStatusMsg({ text: 'Run: memorix dashboard (separate terminal)', type: 'info' });
         }
       } else {
-        switch (action) {
-          case '1': // Start background first
-            try {
-              execSync('memorix background start', { stdio: 'pipe', timeout: 15000 });
-              setStatusMsg({ text: 'Control plane started. Use /dashboard again to open.', type: 'success' });
-              const bg = await getBackgroundStatus();
-              setBackground(bg);
-            } catch (e) { setStatusMsg({ text: `Start failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
-            break;
-          case '2': // Standalone
-            setStatusMsg({ text: 'Run: memorix dashboard (in separate terminal)', type: 'info' });
-            break;
+        if (action === '1') {
+          try { execSync('memorix background start', { stdio: 'pipe', timeout: 15000 }); setStatusMsg({ text: 'Started. Use /dashboard again.', type: 'success' }); setBackground(await getBackgroundStatus()); }
+          catch (e) { setStatusMsg({ text: `Start failed: ${e instanceof Error ? e.message : e}`, type: 'error' }); }
+        } else if (action === '2') {
+          setStatusMsg({ text: 'Run: memorix dashboard (separate terminal)', type: 'info' });
         }
       }
     } catch (err) {

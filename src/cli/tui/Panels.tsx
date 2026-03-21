@@ -442,8 +442,8 @@ export function IngestView({ statusText }: IngestViewProps): React.ReactElement 
       <Text color={COLORS.accentDim} bold>Git &gt; Memory</Text>
       <Text color={COLORS.border}>{separator()}</Text>
       <Box flexDirection="column" marginTop={1}>
-        <Box><Text color={COLORS.text}>  1  Ingest recent commits</Text></Box>
-        <Box><Text color={COLORS.text}>  2  Ingest git log</Text></Box>
+        <Box><Text color={COLORS.text}>  1  Ingest latest commit</Text></Box>
+        <Box><Text color={COLORS.text}>  2  Batch ingest recent git log</Text></Box>
         <Box><Text color={COLORS.text}>  3  Install post-commit hook</Text></Box>
         <Box><Text color={COLORS.text}>  4  Uninstall post-commit hook</Text></Box>
         <Box><Text color={COLORS.muted}>  h  Back to home</Text></Box>
