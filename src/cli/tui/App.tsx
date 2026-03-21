@@ -164,6 +164,8 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           const results = await searchMemories(query);
           setSearchResults(results);
           setLoading(false);
+          // Refresh health so Search Mode / diagnostic reflects actual search path
+          setHealth(await getHealthInfo(project?.id));
           break;
         }
 
@@ -280,6 +282,8 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       const results = await searchMemories(raw);
       setSearchResults(results);
       setLoading(false);
+      // Refresh health so Search Mode / diagnostic reflects actual search path
+      setHealth(await getHealthInfo(project?.id));
     }
   }, [project, exit, onExitForInteractive]);
 
