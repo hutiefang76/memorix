@@ -954,6 +954,7 @@ async function loadGraph() {
         <div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>Select a node to inspect</div>
       </div>
     </div>
+    <div id="graph-isolated-panel" style="display:none;"></div>
   `;
 
   renderGraph(graph);
@@ -1021,7 +1022,6 @@ function renderGraph(graph) {
   let focusEntity = topEntity.name;
   let depth = 1;
   let scope = 'connected'; // 'connected' | 'neighborhood' | 'full'
-  let showIsolated = false; // explicit toggle, off by default
   let selectedNodeId = null;
   let cy = null; // Cytoscape instance
 
@@ -1063,12 +1063,10 @@ function renderGraph(graph) {
     let nodeNames, visibleEdges;
 
     if (scope === 'full') {
-      // Full graph: all entities matching type filter
-      nodeNames = new Set(graph.entities.filter(e => activeTypes.has(e.entityType)).map(e => e.name));
-      // If showIsolated is off, still filter out zero-degree nodes even in full mode
-      if (!showIsolated) {
-        nodeNames = new Set([...nodeNames].filter(n => (degreeMap[n] || 0) > 0));
-      }
+      // Full graph canvas: only connected nodes (isolated go to inventory panel below)
+      nodeNames = new Set(
+        graph.entities.filter(e => activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) > 0).map(e => e.name)
+      );
       visibleEdges = graph.relations.filter(r => nodeNames.has(r.from) && nodeNames.has(r.to));
     } else if (scope === 'neighborhood') {
       // Focused neighborhood: BFS from focusEntity
@@ -1290,7 +1288,7 @@ function renderGraph(graph) {
     // Double-click to refocus
     cy.on('dbltap', 'node', function (evt) {
       focusEntity = evt.target.id();
-      showFullGraph = false;
+      scope = 'neighborhood';
       rebuildGraph();
     });
 
@@ -1300,6 +1298,82 @@ function renderGraph(graph) {
   function rebuildGraph() {
     initCytoscape();
     renderFilterPanel();
+    renderIsolatedPanel();
+  }
+
+  // --- Isolated Entities Inventory (not in graph canvas) ---
+  function renderIsolatedPanel() {
+    const panel = document.getElementById('graph-isolated-panel');
+    if (!panel) return;
+
+    // Only show when scope is connected or full (not neighborhood)
+    if (scope === 'neighborhood') {
+      panel.style.display = 'none';
+      return;
+    }
+
+    const isolated = graph.entities.filter(e =>
+      activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) === 0
+    );
+
+    if (isolated.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    // Group by entityType
+    const groups = {};
+    isolated.forEach(e => {
+      (groups[e.entityType] = groups[e.entityType] || []).push(e);
+    });
+
+    const groupEntries = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+
+    panel.style.display = 'block';
+    panel.innerHTML = `
+      <div class="panel" style="margin-top:16px;">
+        <div class="panel-header">
+          <span class="panel-title">Isolated Entities</span>
+          <span style="font-size:11px;color:var(--text-muted);">${isolated.length} entities with no relations \u2014 shown separately for readability</span>
+        </div>
+        <div class="panel-body" style="padding:12px 16px;">
+          ${groupEntries.map(([type, entities]) => {
+            const color = getTypeColor(type);
+            const collapsed = entities.length > 8;
+            const shown = collapsed ? entities.slice(0, 8) : entities;
+            return `
+              <div style="margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                  <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+                  <span style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(type)}</span>
+                  <span style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono);">${entities.length}</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                  ${shown.map(e => `
+                    <span class="iso-entity-tag" data-iso-entity="${escapeHtml(e.name)}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;color:var(--text-secondary);background:var(--bg-surface);border:1px solid var(--border-subtle);cursor:pointer;transition:all 150ms;">
+                      ${escapeHtml(e.name.length > 28 ? e.name.slice(0, 26) + '\u2026' : e.name)}
+                      ${e.observations.length > 0 ? '<span style="font-size:9px;color:var(--text-muted);">' + e.observations.length + '</span>' : ''}
+                    </span>
+                  `).join('')}
+                  ${collapsed ? '<span style="font-size:11px;color:var(--text-muted);padding:3px 8px;">+' + (entities.length - 8) + ' more</span>' : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+
+    // Bind clicks: inspect isolated entity
+    panel.querySelectorAll('[data-iso-entity]').forEach(el => {
+      el.addEventListener('click', () => {
+        const name = el.dataset.isoEntity;
+        if (entityMap[name]) {
+          selectedNodeId = name;
+          showInspector(name);
+        }
+      });
+    });
   }
 
   // --- Inspector ---
@@ -1366,7 +1440,7 @@ function renderGraph(graph) {
           } else {
             // Switch focus to target
             focusEntity = targetId;
-            showFullGraph = false;
+            scope = 'neighborhood';
             rebuildGraph();
           }
           showInspector(targetId);
@@ -1401,15 +1475,7 @@ function renderGraph(graph) {
             <span class="gfp-radio-dot"></span> Full Graph
           </button>
         </div>
-        ${isolatedCount > 0 ? `
-          <div style="margin-top:8px;">
-            <button class="gfp-check${showIsolated ? ' active' : ''}" id="gfp-show-isolated">
-              <span class="gfp-check-box">\u2713</span>
-              Show isolated (${isolatedCount})
-            </button>
-          </div>
-        ` : ''}
-        ${isSparse ? `<div style="font-size:10px;color:var(--accent-amber);margin-top:6px;line-height:1.4;">\u26A0 Sparse graph: ${isolatedCount} of ${graph.entities.length} entities have no relations. Isolated nodes hidden by default.</div>` : ''}
+        ${isSparse ? `<div style="font-size:10px;color:var(--accent-amber);margin-top:6px;line-height:1.4;">\u26A0 Sparse graph: ${isolatedCount} of ${graph.entities.length} entities have no relations. Isolated entities shown in inventory below.</div>` : ''}
       </div>
     `;
 
@@ -1478,15 +1544,6 @@ function renderGraph(graph) {
         rebuildGraph();
       });
     });
-
-    // Bind show isolated toggle
-    const isoBtn = document.getElementById('gfp-show-isolated');
-    if (isoBtn) {
-      isoBtn.addEventListener('click', () => {
-        showIsolated = !showIsolated;
-        rebuildGraph();
-      });
-    }
 
     // Bind depth
     panel.querySelectorAll('[data-depth]').forEach(btn => {
@@ -1578,7 +1635,7 @@ function renderGraph(graph) {
     if (!tc) return;
     let entities;
     if (scope === 'full') {
-      entities = graph.entities.filter(e => activeTypes.has(e.entityType) && (showIsolated || (degreeMap[e.name] || 0) > 0));
+      entities = graph.entities.filter(e => activeTypes.has(e.entityType) && (degreeMap[e.name] || 0) > 0);
     } else if (scope === 'neighborhood') {
       const sub = getNeighborhood(focusEntity, depth);
       entities = [...sub.nodeNames].filter(n => activeTypes.has(entityMap[n]?.entityType)).map(n => entityMap[n]).filter(Boolean);
@@ -1627,9 +1684,8 @@ function renderGraph(graph) {
     if (gsEdges) gsEdges.textContent = `${edgeCount || 0} edges`;
     if (gsLayout) gsLayout.textContent = currentLayout === 'dagre-tb' ? 'TB' : 'LR';
     if (gsScope) gsScope.textContent = scope === 'full' ? 'full' : scope === 'neighborhood' ? `${depth}-hop` : 'connected';
-    // Show isolated hidden count
-    if (!showIsolated && isolatedCount > 0 && scope !== 'neighborhood') {
-      if (gsScope) gsScope.textContent += ` · ${isolatedCount} isolated hidden`;
+    if (isolatedCount > 0 && scope !== 'neighborhood') {
+      if (gsScope) gsScope.textContent += ` · ${isolatedCount} isolated below`;
     }
   }
 
@@ -1645,6 +1701,7 @@ function renderGraph(graph) {
   _graphState = { graph, entityMap, degreeMap, typeColors, showInspector };
   initCytoscape();
   renderFilterPanel();
+  renderIsolatedPanel();
 }
 
 // ============================================================
@@ -2485,13 +2542,15 @@ function teamLockTTL(expiresAt) {
   return min + 'm left';
 }
 
+let teamScope = 'project'; // 'project' | 'global'
+
 async function loadTeam() {
   const container = document.getElementById('page-team');
   if (!container.innerHTML || container.innerHTML.includes('spinner')) {
     container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   }
 
-  const data = await api('team');
+  const data = await api('team&scope=' + teamScope);
   if (!data || data.unavailable) {
     container.innerHTML = `
       <div class="page-header">
@@ -2526,6 +2585,11 @@ async function loadTeam() {
   const tasksByStatus = { pending: 0, in_progress: 0, completed: 0, failed: 0 };
   data.tasks.forEach(tk => { tasksByStatus[tk.status] = (tasksByStatus[tk.status] || 0) + 1; });
 
+  const scopeLabel = teamScope === 'global' ? 'Global Team' : 'Project Team';
+  const scopeDesc = teamScope === 'global'
+    ? 'All agents across projects (runtime + persisted)'
+    : 'Agents active in current control-plane session';
+
   let html = `
     <div class="team-header">
       <div class="team-header-left">
@@ -2533,11 +2597,15 @@ async function loadTeam() {
           <span class="iconify" data-icon="lucide:users"></span>
         </div>
         <div>
-          <h1 class="page-title">${t('teamTitle')}</h1>
-          <p class="page-subtitle">${t('teamSubtitle')}${data.sessions != null ? ' &middot; ' + data.sessions + ' session(s)' : ''}${data._meta ? ' &middot; ' + data._meta.runtimeAgents + ' live, ' + data._meta.persistedAgents + ' from file' : ''}</p>
+          <h1 class="page-title">${scopeLabel}</h1>
+          <p class="page-subtitle">${scopeDesc}${data.sessions != null ? ' &middot; ' + data.sessions + ' session(s)' : ''}</p>
         </div>
       </div>
       <div class="team-header-right">
+        <div style="display:flex;gap:2px;margin-right:12px;">
+          <button class="filter-btn${teamScope === 'project' ? ' active' : ''}" onclick="teamScope='project';delete loaded['team'];loadTeam();" style="padding:6px 14px;font-size:12px;">Project</button>
+          <button class="filter-btn${teamScope === 'global' ? ' active' : ''}" onclick="teamScope='global';delete loaded['team'];loadTeam();" style="padding:6px 14px;font-size:12px;">Global</button>
+        </div>
         <span class="team-refresh-time" id="team-refresh-indicator"></span>
         <button class="team-refresh-btn" onclick="loadTeam()">
           <span class="iconify" data-icon="lucide:refresh-cw" style="font-size:14px;"></span>
@@ -2579,7 +2647,7 @@ async function loadTeam() {
         </div>
         <div class="panel-body team-scrollable">
           ${data.agents.length === 0
-            ? '<div class="team-empty"><span class="team-empty-icon"><span class="iconify" data-icon="lucide:user-x"></span></span><span class="team-empty-text">No agents registered</span></div>'
+            ? '<div class="team-empty"><span class="team-empty-icon"><span class="iconify" data-icon="lucide:user-x"></span></span><span class="team-empty-text">No agents in ' + (teamScope === 'project' ? 'this session' : 'any scope') + '</span>' + (teamScope === 'project' && data._meta && data._meta.persistedAgents > 0 ? '<div style="font-size:11px;color:var(--accent-amber);margin-top:6px;">' + data._meta.persistedAgents + ' persisted agent(s) available in <a href="#" onclick="teamScope=\'global\';delete loaded[\'team\'];loadTeam();return false;" style="color:var(--accent-purple);text-decoration:underline;">Global view</a></div>' : '') + '</div>'
             : data.agents.map(a => `
               <div class="team-agent-row${a.status !== 'active' ? ' inactive' : ''}">
                 <div class="team-agent-status ${a.status === 'active' ? 'active' : 'offline'}"></div>

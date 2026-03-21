@@ -532,16 +532,18 @@ export default defineCommand({
 
       try {
         if (apiPath === '/team') {
-          // Team state is GLOBAL (not per-project) — always use in-memory state first.
-          // This is correct for HTTP mode where all projects share one control plane.
-          // File-based state is merged as a secondary source for stdio cross-IDE agents.
+          // Team API supports ?scope=project (default) or ?scope=global
+          // Project scope: only runtime agents from this control-plane process
+          // Global scope: runtime + persisted agents from team-state.json
+          const teamScope = url.searchParams.get('scope') || 'project';
+
           sharedTeam.fileLocks.cleanExpired();
-          const agents = sharedTeam.registry.listAgents();
+          const runtimeAgents = sharedTeam.registry.listAgents();
           const locks = sharedTeam.fileLocks.listLocks();
-          const tasks = sharedTeam.taskManager.list();
+          const runtimeTasks = sharedTeam.taskManager.list();
           const available = sharedTeam.taskManager.getAvailable();
 
-          // Merge file-based stdio agent state (if any) for cross-IDE visibility
+          // Always read file-based state for global scope
           let fileAgents: any[] = [];
           let fileTasks: any[] = [];
           try {
@@ -550,8 +552,7 @@ export default defineCommand({
             const raw = await fsPromises.readFile(teamStatePath, 'utf8');
             const snap = JSON.parse(raw);
             if (snap.version === 1 && snap.registry?.agents) {
-              const httpAgentIds = new Set(agents.map((a: any) => a.id));
-              // Handle both object-map and array formats for agents
+              const httpAgentIds = new Set(runtimeAgents.map((a: any) => a.id));
               const rawAgents = snap.registry.agents;
               const agentList = Array.isArray(rawAgents)
                 ? rawAgents
@@ -560,37 +561,46 @@ export default defineCommand({
                 (a: any) => a && a.id && !httpAgentIds.has(a.id),
               );
             }
-            // Also merge file-based tasks if present
             if (snap.taskManager?.tasks) {
               const rawTasks = snap.taskManager.tasks;
               fileTasks = Array.isArray(rawTasks) ? rawTasks : Object.values(rawTasks);
             }
           } catch (err) {
-            // Log merge failures instead of silently swallowing
             if (err && (err as any).code !== 'ENOENT') {
               console.error('[memorix] Warning: failed to merge team-state.json:', (err as Error).message);
             }
           }
 
+          // Build response based on scope
+          const allAgents = [
+            ...runtimeAgents.map((a: any) => ({
+              ...a,
+              unread: sharedTeam.messageBus.getUnreadCount(a.id),
+              transport: 'http',
+              source: 'runtime',
+            })),
+            ...fileAgents.map((a: any) => ({ ...a, transport: 'stdio', source: 'persisted' })),
+          ];
+          const allTasks = [...runtimeTasks, ...fileTasks.filter((ft: any) => !runtimeTasks.some((t: any) => t.id === ft.id))];
+
+          // Project scope: only runtime agents + runtime tasks (current control-plane)
+          // Global scope: everything (runtime + persisted)
+          const scopedAgents = teamScope === 'global' ? allAgents : allAgents.filter((a: any) => a.source === 'runtime');
+          const scopedTasks = teamScope === 'global' ? allTasks : runtimeTasks;
+
           sendJson({
-            agents: [
-              ...agents.map((a: any) => ({
-                ...a,
-                unread: sharedTeam.messageBus.getUnreadCount(a.id),
-                transport: 'http',
-                source: 'runtime',
-              })),
-              ...fileAgents.map((a: any) => ({ ...a, transport: 'stdio', source: 'persisted' })),
-            ],
-            activeCount: sharedTeam.registry.getActiveCount() + fileAgents.filter((a: any) => a.status === 'active').length,
+            scope: teamScope,
+            agents: scopedAgents,
+            activeCount: scopedAgents.filter((a: any) => a.status === 'active').length,
             locks,
-            tasks: [...tasks, ...fileTasks.filter((ft: any) => !tasks.some((t: any) => t.id === ft.id))],
+            tasks: scopedTasks,
             availableTasks: available.length,
             sessions: sessions.size,
             _meta: {
-              runtimeAgents: agents.length,
+              scope: teamScope,
+              runtimeAgents: runtimeAgents.length,
               persistedAgents: fileAgents.length,
-              source: 'Runtime state from current control-plane process, merged with persisted team-state.json for cross-IDE visibility.',
+              totalAgents: allAgents.length,
             },
           });
           return;
