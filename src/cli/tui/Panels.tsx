@@ -55,13 +55,25 @@ interface LandingViewProps {
   loading: boolean;
 }
 
+// Brand mark -- small block text inspired by OpenCode's pixel logo
+const BRAND_LINES = [
+  ' __  __ ___ __  __  ___  ___ _____  __',
+  '|  \\/  | __|  \\/  |/ _ \\| _ \\_ _\\ \\/ /',
+  '| |\\/| | _|| |\\/| | (_) |   /| | >  < ',
+  '|_|  |_|___|_|  |_|\\___/|_|_\\___|/_/\\_\\',
+];
+
 export function LandingView({ recentMemories, highValueSignals, project, background, health, loading }: LandingViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" alignItems="center">
-      {/* Brand: symbol + wordmark (OpenCode pattern: icon + name) */}
-      <Box marginBottom={1}>
-        <Text color={COLORS.accent} bold>{'  '}◇ memorix</Text>
+      {/* Brand logo */}
+      <Box flexDirection="column" alignItems="center" marginBottom={1}>
+        {BRAND_LINES.map((line, i) => (
+          <Text key={i} color={i < 2 ? COLORS.accent : COLORS.accentDim}>{line}</Text>
+        ))}
       </Box>
+
+      {/* Subtitle */}
       <Text color={COLORS.muted}>Memory workbench for code and agents</Text>
     </Box>
   );

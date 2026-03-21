@@ -29,27 +29,16 @@ export async function startWorkbench(): Promise<void> {
   let pendingInteractiveCmd: string | null = null;
   let instance: ReturnType<typeof render> | null = null;
 
-  // Suppress ALL output during TUI — must intercept at process level
-  // because embedding providers and other modules call console.error which
-  // resolves to process.stderr.write, and they may cache the original reference.
-  const origStderrWrite = process.stderr.write.bind(process.stderr);
+  // Suppress console output during TUI to prevent log noise on alternate screen
   const origLog = console.log;
   const origError = console.error;
   const origWarn = console.warn;
-  let tuiActive = false;
 
   const enterTUI = () => {
-    // Silence at every level: console + process.stderr
+    // Silence all console output while Ink owns the screen
     console.log = () => {};
     console.error = () => {};
     console.warn = () => {};
-    // Intercept process.stderr.write to swallow embedding/provider logs
-    const stderrProxy = function(chunk: any, encodingOrCb?: any, cb?: any): boolean {
-      if (tuiActive) return true;
-      return origStderrWrite(chunk, encodingOrCb, cb);
-    };
-    process.stderr.write = stderrProxy as typeof process.stderr.write;
-    tuiActive = true;
 
     process.stdout.write(ALT_ON);
 
@@ -67,11 +56,10 @@ export async function startWorkbench(): Promise<void> {
   };
 
   const exitTUI = () => {
-    tuiActive = false;
+    // Restore console output before leaving alternate screen
     console.log = origLog;
     console.error = origError;
     console.warn = origWarn;
-    process.stderr.write = origStderrWrite;
     process.stdout.write(ALT_OFF);
   };
 
