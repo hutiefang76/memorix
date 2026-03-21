@@ -912,8 +912,10 @@ function renderPieChart(canvasId, entries, icons) {
 }
 
 // ============================================================
-// Knowledge Graph Page
+// Knowledge Graph Page — Enterprise Topology Explorer
 // ============================================================
+
+let _graphState = null; // Module-level graph state for cross-function access
 
 async function loadGraph() {
   const container = document.getElementById('page-graph');
@@ -927,26 +929,31 @@ async function loadGraph() {
 
   container.innerHTML = `
     <div class="page-header">
-      <h1 class="page-title">${t('knowledgeGraph')}</h1>
-      <p class="page-subtitle">${graph.entities.length} ${t('entities').toLowerCase()}, ${graph.relations.length} ${t('relations').toLowerCase()}</p>
+      <h1 class="page-title">Memory Topology Explorer</h1>
+      <p class="page-subtitle">${graph.entities.length} entities · ${graph.relations.length} relations</p>
     </div>
     <div class="graph-layout">
+      <div class="graph-filter-panel" id="graph-filter-panel"></div>
       <div id="graph-container">
         <canvas id="graph-canvas"></canvas>
         <div class="graph-tooltip" id="graph-tooltip">
           <div class="graph-tooltip-name"></div>
           <div class="graph-tooltip-type"></div>
         </div>
-        <div class="graph-panel" id="graph-panel">
-          <div class="graph-panel-tabs">
-            <button class="gp-tab active" data-gptab="stats">STATS</button>
-            <button class="gp-tab" data-gptab="legend">LEGEND</button>
-            <button class="gp-tab" data-gptab="filter">FILTER</button>
-            <button class="gp-tab" data-gptab="search">SEARCH</button>
+        <div class="graph-status-bar">
+          <span class="graph-status-item" id="gs-nodes"></span>
+          <span class="graph-status-item" id="gs-edges"></span>
+          <span class="graph-status-item" id="gs-layout"></span>
+          <div class="graph-zoom-controls">
+            <button class="graph-zoom-btn" id="gz-out">\u2212</button>
+            <button class="graph-zoom-btn" id="gz-reset">\u27F3</button>
+            <button class="graph-zoom-btn" id="gz-in">+</button>
           </div>
-          <div class="gp-content" id="gp-content"></div>
         </div>
-        <div class="graph-detail-drawer" id="graph-detail-drawer"></div>
+      </div>
+      <div class="graph-table-container" id="graph-table-container" style="display:none;"></div>
+      <div class="graph-inspector" id="graph-inspector">
+        <div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>Select a node to inspect</div>
       </div>
     </div>
   `;
@@ -955,8 +962,8 @@ async function loadGraph() {
 }
 
 // ============================================================
-// Canvas-based Force-Directed Graph — InfraNodus Style
-// Solid glowing nodes, colored gradient edges, labels on nodes
+// Enterprise Topology Explorer — Clean Canvas Graph
+// Muted palette, theme-aware, stable layouts, no cosmic effects
 // ============================================================
 
 function renderGraph(graph) {
@@ -973,24 +980,12 @@ function renderGraph(graph) {
   ctx.scale(dpr, dpr);
 
   const W = rect.width;
-  const H = rect.height;
+  const H = rect.height - 28; // Reserve space for status bar
 
-  // --- Cosmic starfield background ---
-  const stars = [];
-  for (let i = 0; i < 180; i++) {
-    stars.push({
-      x: Math.random() * W,
-      y: Math.random() * H,
-      r: Math.random() * 1.2 + 0.2,
-      a: Math.random() * 0.5 + 0.05,
-      twinkle: Math.random() * Math.PI * 2,
-    });
-  }
-
-  // --- InfraNodus-inspired vibrant palette ---
+  // --- Muted enterprise palette (no neon/vibrant) ---
   const palette = [
-    '#69F0AE', '#FFAB40', '#D0BCFF', '#80D8FF',
-    '#FFD54F', '#FFB8D1', '#82B1FF', '#FF8A80',
+    '#7C9CBF', '#8FB996', '#C4956A', '#A893C2',
+    '#6BA3A0', '#B8A44C', '#C27878', '#7B8EB8',
   ];
   const typeColors = {};
   let colorIdx = 0;
@@ -999,36 +994,36 @@ function renderGraph(graph) {
     return typeColors[type];
   }
 
-  // Detect if one type dominates — if so, use name-hash for color variety
   const typeCounts = {};
   graph.entities.forEach(e => { typeCounts[e.entityType] = (typeCounts[e.entityType] || 0) + 1; });
-  const maxTypeCount = Math.max(...Object.values(typeCounts));
-  const useNameHash = maxTypeCount > graph.entities.length * 0.6;
 
-  function hashColor(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-    return palette[((h % palette.length) + palette.length) % palette.length];
+  function hexRGBA(hex, alpha) {
+    const r2 = parseInt(hex.slice(1, 3), 16);
+    const g2 = parseInt(hex.slice(3, 5), 16);
+    const b2 = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r2},${g2},${b2},${alpha})`;
   }
 
+  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
   // --- Build nodes & edges ---
-  const nodes = graph.entities.map((e) => {
+  const allNodes = graph.entities.map((e) => {
     const obsCount = e.observations.length;
     return {
       id: e.name, type: e.entityType, observations: e.observations,
-      x: (Math.random() - 0.5) * W * 0.5,
-      y: (Math.random() - 0.5) * H * 0.5,
-      vx: 0, vy: 0,
-      baseRadius: Math.max(5, Math.min(4 + Math.sqrt(obsCount) * 3, 20)),
+      x: 0, y: 0, vx: 0, vy: 0,
+      baseRadius: Math.max(4, Math.min(3 + Math.sqrt(obsCount) * 2.5, 16)),
       radius: 0,
-      color: useNameHash ? hashColor(e.name) : getTypeColor(e.entityType),
+      color: getTypeColor(e.entityType),
       degree: 0,
+      _visible: true, _dimmed: false,
     };
   });
   const nodeMap = {};
-  nodes.forEach(n => nodeMap[n.id] = n);
+  allNodes.forEach(n => nodeMap[n.id] = n);
 
-  const edges = graph.relations
+  const allEdges = graph.relations
     .filter(r => nodeMap[r.from] && nodeMap[r.to])
     .map(r => {
       nodeMap[r.from].degree++;
@@ -1036,15 +1031,20 @@ function renderGraph(graph) {
       return { source: nodeMap[r.from], target: nodeMap[r.to], type: r.relationType };
     });
 
-  // Ensure typeColors populated for legend
-  Object.keys(typeCounts).forEach(t => getTypeColor(t));
+  Object.keys(typeCounts).forEach(t2 => getTypeColor(t2));
 
-  // Node sizing: smaller circles (labels are the visual identity in InfraNodus)
-  const maxDegree = Math.max(1, ...nodes.map(n => n.degree));
-  nodes.forEach(n => {
-    const degreeBoost = (n.degree / maxDegree) * 12;
-    n.radius = Math.min(n.baseRadius * 0.7 + degreeBoost, 24);
+  // Node sizing by degree
+  const maxDegree = Math.max(1, ...allNodes.map(n => n.degree));
+  allNodes.forEach(n => {
+    n.radius = Math.min(n.baseRadius + (n.degree / maxDegree) * 8, 20);
   });
+
+  // Visible subsets (affected by filters)
+  let nodes = allNodes;
+  let edges = allEdges;
+  let activeTypes = new Set(Object.keys(typeCounts));
+  let currentView = 'graph'; // 'graph' | 'table'
+  let currentLayout = 'force'; // 'force' | 'circular' | 'concentric'
 
   // --- Camera (zoom & pan) ---
   let cam = { x: 0, y: 0, zoom: 1 };
@@ -1055,13 +1055,74 @@ function renderGraph(graph) {
     return { x: (sx - W / 2) / cam.zoom + cam.x, y: (sy - H / 2) / cam.zoom + cam.y };
   }
 
-  // --- Physics (cluster-based layout — separate galaxies per type) ---
-  const REPULSION = 4000;
-  const ATTRACTION = 0.008;
-  const DAMPING = 0.82;
-  const IDEAL_DIST = 80;
-  const CLUSTER_PULL = 0.012;       // Pull nodes toward their cluster center
-  const INTER_CLUSTER_REPEL = 8000; // Repel cluster centers apart
+  // --- Layout algorithms ---
+  function applyForceLayout() {
+    const spread = Math.min(W, H) * 0.4;
+    nodes.forEach(n => {
+      n.x = (Math.random() - 0.5) * spread;
+      n.y = (Math.random() - 0.5) * spread;
+      n.vx = 0; n.vy = 0;
+    });
+    isSettled = false; simTick = 0; settleCountdown = 0;
+  }
+
+  function applyCircularLayout() {
+    const r = Math.min(W, H) * 0.35;
+    nodes.forEach((n, i) => {
+      const angle = (i / nodes.length) * Math.PI * 2 - Math.PI / 2;
+      n.x = Math.cos(angle) * r;
+      n.y = Math.sin(angle) * r;
+      n.vx = 0; n.vy = 0;
+    });
+    isSettled = true;
+  }
+
+  function applyConcentricLayout() {
+    // Sort by degree descending — high-degree nodes in center ring
+    const sorted = [...nodes].sort((a, b) => b.degree - a.degree);
+    const rings = [];
+    let remaining = [...sorted];
+    let ringIdx = 0;
+    while (remaining.length > 0) {
+      const ringSize = ringIdx === 0 ? Math.min(3, remaining.length) : Math.min(8 + ringIdx * 4, remaining.length);
+      rings.push(remaining.splice(0, ringSize));
+      ringIdx++;
+    }
+    const ringGap = Math.min(W, H) * 0.12;
+    rings.forEach((ring, ri) => {
+      const r = ri === 0 ? 0 : ri * ringGap;
+      ring.forEach((n, ni) => {
+        if (r === 0) {
+          n.x = (ni - (ring.length - 1) / 2) * 30;
+          n.y = 0;
+        } else {
+          const angle = (ni / ring.length) * Math.PI * 2 - Math.PI / 2;
+          n.x = Math.cos(angle) * r;
+          n.y = Math.sin(angle) * r;
+        }
+        n.vx = 0; n.vy = 0;
+      });
+    });
+    isSettled = true;
+  }
+
+  function applyLayout(layout) {
+    currentLayout = layout;
+    if (layout === 'circular') applyCircularLayout();
+    else if (layout === 'concentric') applyConcentricLayout();
+    else applyForceLayout();
+    cam = { x: 0, y: 0, zoom: 1 };
+    if (nodes.length > 60) cam.zoom = 0.55;
+    else if (nodes.length > 30) cam.zoom = 0.7;
+    updateStatusBar();
+  }
+
+  // --- Physics (simple force-directed, no galaxy clustering) ---
+  const REPULSION = 3000;
+  const ATTRACTION = 0.006;
+  const DAMPING = 0.85;
+  const IDEAL_DIST = 70;
+  const CENTER_PULL = 0.0005;
 
   let hoveredNode = null;
   let selectedNode = null;
@@ -1069,548 +1130,473 @@ function renderGraph(graph) {
   let panStart = null;
   let simTick = 0;
   let isSettled = false;
-  let stableMode = nodes.length > 15; // Auto-stable for larger graphs
-  const SETTLE_THRESHOLD = 0.15;
-  let settleCountdown = 0; // frames below threshold before declaring settled
-
-  // Group nodes by color → separate galaxies
-  const colorGroups = {};
-  nodes.forEach(n => { (colorGroups[n.color] = colorGroups[n.color] || []).push(n); });
-  const groupKeys = Object.keys(colorGroups);
-
-  // Assign cluster centers with asymmetric organic placement
-  const clusterCenters = {};
-  const baseR = Math.min(W, H) * 0.28;
-  groupKeys.forEach((color, gi) => {
-    // Irregular angle spacing + random orbit distance
-    const baseAngle = (gi / groupKeys.length) * Math.PI * 2;
-    const angleJitter = (Math.random() - 0.5) * (Math.PI * 0.4);
-    const angle = baseAngle + angleJitter;
-    const r = baseR * (0.5 + Math.random() * 0.7);
-    clusterCenters[color] = {
-      x: Math.cos(angle) * r + (Math.random() - 0.5) * baseR * 0.3,
-      y: Math.sin(angle) * r + (Math.random() - 0.5) * baseR * 0.3,
-    };
-  });
-
-  // Initial placement near cluster centers
-  groupKeys.forEach((color) => {
-    const cc = clusterCenters[color];
-    const spread = 40 + colorGroups[color].length * 5;
-    colorGroups[color].forEach(n => {
-      n.x = cc.x + (Math.random() - 0.5) * spread;
-      n.y = cc.y + (Math.random() - 0.5) * spread;
-    });
-  });
+  const SETTLE_THRESHOLD = 0.12;
+  let settleCountdown = 0;
 
   function simulate() {
+    if (currentLayout !== 'force') return;
     simTick++;
+    const warmup = Math.min(1, simTick / 80);
 
-    // --- Inter-cluster repulsion (push cluster centers apart) ---
-    for (let i = 0; i < groupKeys.length; i++) {
-      for (let j = i + 1; j < groupKeys.length; j++) {
-        const ca = clusterCenters[groupKeys[i]], cb = clusterCenters[groupKeys[j]];
-        let dx = cb.x - ca.x, dy = cb.y - ca.y;
-        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        let force = INTER_CLUSTER_REPEL / (dist * dist);
-        ca.x -= (dx / dist) * force * 0.01;
-        ca.y -= (dy / dist) * force * 0.01;
-        cb.x += (dx / dist) * force * 0.01;
-        cb.y += (dy / dist) * force * 0.01;
-      }
-    }
-
-    // --- Warmup factor (ramp all forces gradually to prevent explosive start) ---
-    const warmup = Math.min(1, simTick / 100);
-
-    // --- Node-to-node repulsion (also ramped) ---
-    const curRepulsion = REPULSION * (0.1 + 0.9 * warmup);
+    // Node repulsion
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
+        if (!nodes[i]._visible || !nodes[j]._visible) continue;
         const a = nodes[i], b = nodes[j];
         let dx = b.x - a.x, dy = b.y - a.y;
         let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        let force = curRepulsion / (dist * dist);
-        // Same-color nodes repel less (stay in galaxy)
-        if (a.color === b.color) force *= 0.4;
+        let force = (REPULSION * warmup) / (dist * dist);
         let fx = (dx / dist) * force, fy = (dy / dist) * force;
         a.vx -= fx; a.vy -= fy;
         b.vx += fx; b.vy += fy;
       }
     }
 
-    // --- Edge attraction (also ramped) ---
-    const curAttraction = ATTRACTION * warmup;
+    // Edge attraction
     for (const edge of edges) {
+      if (!edge.source._visible || !edge.target._visible) continue;
       let dx = edge.target.x - edge.source.x, dy = edge.target.y - edge.source.y;
       let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      let force = (dist - IDEAL_DIST) * curAttraction;
+      let force = (dist - IDEAL_DIST) * ATTRACTION * warmup;
       let fx = (dx / dist) * force, fy = (dy / dist) * force;
       edge.source.vx += fx; edge.source.vy += fy;
       edge.target.vx -= fx; edge.target.vy -= fy;
     }
 
-    // --- Cluster gravity (pull each node toward its galaxy center) ---
+    // Gentle center pull
     for (const node of nodes) {
-      const cc = clusterCenters[node.color];
-      if (!cc) continue;
-      node.vx += (cc.x - node.x) * CLUSTER_PULL;
-      node.vy += (cc.y - node.y) * CLUSTER_PULL;
+      if (!node._visible) continue;
+      node.vx -= node.x * CENTER_PULL;
+      node.vy -= node.y * CENTER_PULL;
     }
 
-    // --- Gentle jitter only during warmup, then pure physics ---
-    const jitter = simTick < 60 ? 0.06 * (1 - simTick / 60) : 0;
-    const maxV = simTick < 40 ? 1.2 : 3.0; // Strict speed limit during early frames
     let totalMovement = 0;
     for (const node of nodes) {
-      if (node === dragNode) continue;
+      if (node === dragNode || !node._visible) continue;
       node.vx *= DAMPING; node.vy *= DAMPING;
-      if (jitter > 0) {
-        node.vx += (Math.random() - 0.5) * jitter;
-        node.vy += (Math.random() - 0.5) * jitter;
-      }
-      // Clamp velocity
       const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+      const maxV = simTick < 40 ? 1.5 : 3.0;
       if (speed > maxV) { node.vx *= maxV / speed; node.vy *= maxV / speed; }
       node.x += node.vx; node.y += node.vy;
       totalMovement += Math.abs(node.vx) + Math.abs(node.vy);
     }
 
-    // Settle detection — stop physics when stable
-    if (stableMode && simTick > 120) {
-      const avgMovement = totalMovement / Math.max(1, nodes.length);
-      if (avgMovement < SETTLE_THRESHOLD) {
-        settleCountdown++;
-        if (settleCountdown > 30) isSettled = true;
-      } else {
-        settleCountdown = 0;
+    if (simTick > 100) {
+      const avg = totalMovement / Math.max(1, nodes.length);
+      if (avg < SETTLE_THRESHOLD) { settleCountdown++; if (settleCountdown > 30) isSettled = true; }
+      else settleCountdown = 0;
+    }
+  }
+
+  // --- Draw (clean, theme-aware, no cosmic effects) ---
+  function draw() {
+    ctx.clearRect(0, 0, W, H + 28);
+
+    // Theme-aware background — solid color, not cosmic gradient
+    const light = isLight();
+    ctx.fillStyle = light ? '#F7F2FA' : '#0F0F17';
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grid dots
+    const gridSize = 40 * cam.zoom;
+    if (gridSize > 15) {
+      ctx.fillStyle = light ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.03)';
+      const offX = (W / 2 - cam.x * cam.zoom) % gridSize;
+      const offY = (H / 2 - cam.y * cam.zoom) % gridSize;
+      for (let gx = offX; gx < W; gx += gridSize) {
+        for (let gy = offY; gy < H; gy += gridSize) {
+          ctx.fillRect(gx - 0.5, gy - 0.5, 1, 1);
+        }
       }
     }
-    return totalMovement;
-  }
 
-  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+    const textColor = light ? '#1C1B1F' : '#E6E1E5';
+    const textMuted = light ? '#79747E' : '#79747E';
 
-  function hexRGBA(hex, alpha) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
-  }
-
-  // --- Draw (InfraNodus style) ---
-  // Canvas always renders dark cosmic background, independent of page theme
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-
-    // --- Cosmic background (always dark) ---
-    const bgGrad = ctx.createRadialGradient(W * 0.5, H * 1.2, 0, W * 0.5, H * 0.5, H * 1.1);
-    bgGrad.addColorStop(0, '#1a1040');
-    bgGrad.addColorStop(0.4, '#0e0e1e');
-    bgGrad.addColorStop(1, '#06060C');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, W, H);
-
-    // Stars with subtle twinkle
-    const t0 = Date.now() * 0.001;
-    for (const star of stars) {
-      const flicker = 0.6 + 0.4 * Math.sin(t0 * 0.8 + star.twinkle);
-      ctx.beginPath();
-      ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(220,210,255,${star.a * flicker})`;
-      ctx.fill();
-    }
-
-    // Subtle nebula glow
-    const neb = ctx.createRadialGradient(W * 0.3, H * 0.7, 0, W * 0.3, H * 0.7, W * 0.35);
-    neb.addColorStop(0, 'rgba(100, 60, 180, 0.04)');
-    neb.addColorStop(1, 'rgba(100, 60, 180, 0)');
-    ctx.fillStyle = neb;
-    ctx.fillRect(0, 0, W, H);
-
-    // --- Edges: ALL colored with gradient (InfraNodus signature) ---
+    // --- Edges: thin, single color, no glow ---
     for (const edge of edges) {
+      if (!edge.source._visible || !edge.target._visible) continue;
       const isActive = (hoveredNode && (edge.source === hoveredNode || edge.target === hoveredNode))
         || (selectedNode && (edge.source === selectedNode || edge.target === selectedNode));
       const s = worldToScreen(edge.source.x, edge.source.y);
       const t2 = worldToScreen(edge.target.x, edge.target.y);
-      const mx = (s.x + t2.x) / 2, my = (s.y + t2.y) / 2;
-      const dx = t2.x - s.x, dy = t2.y - s.y;
-      const edgeLen = Math.sqrt(dx * dx + dy * dy);
-      const ox = -dy * 0.05, oy = dx * 0.05;
 
-      if (edge.source._dimmed || edge.target._dimmed) { ctx.globalAlpha = 0.03; }
-
-      // --- Edge glow (chain-like, zditor style) ---
-      if (edgeLen > 2) {
-        // Outer glow layer
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.quadraticCurveTo(mx + ox, my + oy, t2.x, t2.y);
-        const glowGrad = ctx.createLinearGradient(s.x, s.y, t2.x, t2.y);
-        glowGrad.addColorStop(0, hexRGBA(edge.source.color, isActive ? 0.25 : 0.12));
-        glowGrad.addColorStop(1, hexRGBA(edge.target.color, isActive ? 0.25 : 0.12));
-        ctx.strokeStyle = glowGrad;
-        ctx.lineWidth = isActive ? 12 * cam.zoom : 6 * cam.zoom;
-        ctx.stroke();
-      }
+      if (edge.source._dimmed && edge.target._dimmed) { ctx.globalAlpha = 0.08; }
+      else if (edge.source._dimmed || edge.target._dimmed) { ctx.globalAlpha = 0.15; }
 
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
-      ctx.quadraticCurveTo(mx + ox, my + oy, t2.x, t2.y);
-
-      // Fix: avoid degenerate gradient when endpoints overlap
-      let edgeStyle;
-      if (edgeLen < 2) {
-        edgeStyle = hexRGBA(edge.source.color, isActive ? 1.0 : 0.7);
-      } else {
-        const grad = ctx.createLinearGradient(s.x, s.y, t2.x, t2.y);
-        if (isActive) {
-          grad.addColorStop(0, hexRGBA(edge.source.color, 1.0));
-          grad.addColorStop(1, hexRGBA(edge.target.color, 1.0));
-        } else {
-          grad.addColorStop(0, hexRGBA(edge.source.color, 0.7));
-          grad.addColorStop(1, hexRGBA(edge.target.color, 0.7));
-        }
-        edgeStyle = grad;
-      }
-      ctx.strokeStyle = edgeStyle;
-      ctx.lineWidth = isActive ? 3.0 * cam.zoom : Math.max(1.5, 2.0 * cam.zoom);
+      ctx.lineTo(t2.x, t2.y);
+      ctx.strokeStyle = isActive
+        ? (light ? 'rgba(103,80,164,0.6)' : 'rgba(208,188,255,0.5)')
+        : (light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)');
+      ctx.lineWidth = isActive ? 2 : 1;
       ctx.stroke();
 
-      // Active edge: label
-      if (isActive) {
+      // Arrow head
+      const dx = t2.x - s.x, dy = t2.y - s.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 20) {
+        const arrowLen = 6 * cam.zoom;
+        const nx = dx / len, ny = dy / len;
+        const tipX = t2.x - nx * (edge.target.radius * cam.zoom + 2);
+        const tipY = t2.y - ny * (edge.target.radius * cam.zoom + 2);
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX - nx * arrowLen + ny * arrowLen * 0.4, tipY - ny * arrowLen - nx * arrowLen * 0.4);
+        ctx.lineTo(tipX - nx * arrowLen - ny * arrowLen * 0.4, tipY - ny * arrowLen + nx * arrowLen * 0.4);
+        ctx.closePath();
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fill();
+      }
+
+      // Active edge: relation type label
+      if (isActive && len > 40) {
+        const mx = (s.x + t2.x) / 2, my = (s.y + t2.y) / 2;
         ctx.font = `500 ${Math.max(9, 10 * cam.zoom)}px Inter, sans-serif`;
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fillStyle = light ? 'rgba(103,80,164,0.7)' : 'rgba(208,188,255,0.6)';
         ctx.textAlign = 'center';
-        ctx.fillText(edge.type, mx + ox, my + oy - 6 * cam.zoom);
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(edge.type, mx, my - 4);
+        ctx.textBaseline = 'alphabetic';
       }
       ctx.globalAlpha = 1;
     }
 
-    // --- Breathing time variable ---
-    const breathT = Date.now() * 0.001;
-
-    // --- Nodes: solid with breathing glow (zditor-style) ---
+    // --- Nodes: solid circle with 1px border, no glow ---
     for (const node of nodes) {
+      if (!node._visible) continue;
       const active = node === hoveredNode || node === selectedNode;
       const p = worldToScreen(node.x, node.y);
       const r = node.radius * cam.zoom;
 
-      if (p.x + r * 5 < 0 || p.x - r * 5 > W || p.y + r * 5 < 0 || p.y - r * 5 > H) continue;
-      if (node._dimmed) { ctx.globalAlpha = 0.06; }
+      if (p.x + r * 2 < 0 || p.x - r * 2 > W || p.y + r * 2 < 0 || p.y - r * 2 > H) continue;
+      if (node._dimmed) { ctx.globalAlpha = 0.15; }
 
-      // --- Breathing outer glow (pulsing nebula effect) ---
-      const breathPhase = Math.sin(breathT * 1.2 + node.x * 0.01 + node.y * 0.01);
-      const breathScale = 0.85 + 0.15 * breathPhase;
-      const glowAlpha = active ? 0.4 : 0.18 * breathScale;
-      const glowR = r * (active ? 4.0 : 3.0) * breathScale;
-      const glow = ctx.createRadialGradient(p.x, p.y, r * 0.2, p.x, p.y, glowR);
-      glow.addColorStop(0, hexRGBA(node.color, glowAlpha));
-      glow.addColorStop(0.5, hexRGBA(node.color, glowAlpha * 0.3));
-      glow.addColorStop(1, hexRGBA(node.color, 0));
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
-      ctx.fillStyle = glow;
-      ctx.fill();
-
-      // --- Solid filled node ---
+      // Filled circle
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = node.color;
+      ctx.fillStyle = hexRGBA(node.color, active ? 1.0 : 0.8);
       ctx.fill();
 
-      // Specular highlight
-      if (r > 3) {
-        const spec = ctx.createRadialGradient(
-          p.x - r * 0.3, p.y - r * 0.3, 0,
-          p.x, p.y, r * 0.9
-        );
-        spec.addColorStop(0, 'rgba(255,255,255,0.35)');
-        spec.addColorStop(0.4, 'rgba(255,255,255,0.08)');
-        spec.addColorStop(1, 'rgba(255,255,255,0)');
+      // Border
+      ctx.strokeStyle = active
+        ? (light ? 'rgba(103,80,164,0.8)' : 'rgba(208,188,255,0.8)')
+        : (light ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)');
+      ctx.lineWidth = active ? 2 : 1;
+      ctx.stroke();
+
+      // Selection ring
+      if (node === selectedNode) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = spec;
-        ctx.fill();
+        ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
+        ctx.strokeStyle = light ? 'rgba(103,80,164,0.4)' : 'rgba(208,188,255,0.4)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
 
-      // --- Labels: BELOW the node, only on hover/select (zditor-style) ---
-      const showLabel = active || cam.zoom > 1.8;
-
+      // Labels: always visible at reasonable zoom, not just on hover
+      const showLabel = active || cam.zoom > 0.6 || nodes.length < 30;
       if (showLabel) {
-        const baseFontSize = active ? 14 : 10;
+        const baseFontSize = active ? 12 : 10;
         const fontSize = Math.max(8, baseFontSize * cam.zoom);
-        ctx.font = `${active ? '600' : '500'} ${fontSize}px Inter, sans-serif`;
+        ctx.font = `${active ? '600' : '400'} ${fontSize}px Inter, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
+        const labelText = node.id.length > 22 && !active ? node.id.slice(0, 20) + '\u2026' : node.id;
+        const labelY = p.y + r + 3 * cam.zoom;
 
-        const labelText = node.id.length > 20 && !active ? node.id.slice(0, 18) + '\u2026' : node.id;
-        const labelY = p.y + r + 5 * cam.zoom;
-
-        // Always white text (canvas bg is always dark)
-        ctx.fillStyle = '#FFFFFF';
+        // Text shadow for readability
+        ctx.fillStyle = light ? 'rgba(255,255,255,0.8)' : 'rgba(15,15,23,0.8)';
+        ctx.fillText(labelText, p.x + 0.5, labelY + 0.5);
+        ctx.fillStyle = node._dimmed ? textMuted : textColor;
         ctx.fillText(labelText, p.x, labelY);
         ctx.textBaseline = 'alphabetic';
       }
 
       ctx.globalAlpha = 1;
     }
-
-    // --- Zoom indicator ---
-    const zoomPct = Math.round(cam.zoom * 100);
-    if (zoomPct !== 100) {
-      ctx.font = '500 11px Inter, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.25)';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillText(`${zoomPct}%`, 12, H - 12);
-    }
-
-    // Continuous loop handles redraw — no manual trigger needed
   }
 
-  // --- Graph Panel (zditor-style tabs: Stats / Legend / Filter / Search) ---
-  const typeCount = {};
-  nodes.forEach(n => { typeCount[n.type] = (typeCount[n.type] || 0) + 1; });
-  Object.keys(typeCounts).forEach(t2 => getTypeColor(t2));
+  // --- Filter panel ---
+  function renderFilterPanel() {
+    const panel = document.getElementById('graph-filter-panel');
+    if (!panel) return;
 
-  let activeFilterType = null;
+    const searchHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">Search</div>
+        <input type="text" class="gfp-search" id="gfp-search" placeholder="Find entity..." autocomplete="off" />
+      </div>
+    `;
 
-  function renderPanelTab(tab) {
-    const content = document.getElementById('gp-content');
-    if (!content) return;
+    const viewHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">View</div>
+        <div class="gfp-radio-group">
+          <button class="gfp-radio${currentView === 'graph' ? ' active' : ''}" data-view="graph">
+            <span class="gfp-radio-dot"></span> Graph
+          </button>
+          <button class="gfp-radio${currentView === 'table' ? ' active' : ''}" data-view="table">
+            <span class="gfp-radio-dot"></span> Table
+          </button>
+        </div>
+      </div>
+    `;
 
-    if (tab === 'stats') {
-      const maxDeg = Math.max(1, ...nodes.map(n => n.degree));
-      const topNodes = [...nodes].sort((a, b) => b.degree - a.degree).slice(0, 5);
-      content.innerHTML = `
-        <div class="gp-stat-row"><span class="gp-stat-label">Nodes</span><span class="gp-stat-value">${nodes.length}</span></div>
-        <div class="gp-stat-row"><span class="gp-stat-label">Edges</span><span class="gp-stat-value">${edges.length}</span></div>
-        <div class="gp-stat-row"><span class="gp-stat-label">Types</span><span class="gp-stat-value">${Object.keys(typeCount).length}</span></div>
-        <div class="gp-stat-row"><span class="gp-stat-label">Density</span><span class="gp-stat-value">${nodes.length > 1 ? (2 * edges.length / (nodes.length * (nodes.length - 1))).toFixed(3) : '0'}</span></div>
-        <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.04);">
-          <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;">Top Nodes</div>
-          ${topNodes.map(n => `
-            <div class="gp-legend-item" data-node-id="${escapeHtml(n.id)}">
-              <div class="gp-legend-dot" style="background:${n.color};box-shadow:0 0 6px ${n.color}60;"></div>
-              <span class="gp-legend-name">${escapeHtml(n.id)}</span>
-              <span class="gp-legend-count">${n.degree}</span>
-            </div>
+    const layoutHtml = `
+      <div class="gfp-section" id="gfp-layout-section"${currentView === 'table' ? ' style="display:none"' : ''}>
+        <div class="gfp-label">Layout</div>
+        <div class="gfp-radio-group">
+          <button class="gfp-radio${currentLayout === 'force' ? ' active' : ''}" data-layout="force">
+            <span class="gfp-radio-dot"></span> Force-Directed
+          </button>
+          <button class="gfp-radio${currentLayout === 'circular' ? ' active' : ''}" data-layout="circular">
+            <span class="gfp-radio-dot"></span> Circular
+          </button>
+          <button class="gfp-radio${currentLayout === 'concentric' ? ' active' : ''}" data-layout="concentric">
+            <span class="gfp-radio-dot"></span> Concentric
+          </button>
+        </div>
+      </div>
+    `;
+
+    const typeEntries = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+    const filterHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">Entity Type</div>
+        <div class="gfp-radio-group">
+          ${typeEntries.map(([type, count]) => `
+            <button class="gfp-check${activeTypes.has(type) ? ' active' : ''}" data-type-filter="${escapeHtml(type)}">
+              <span class="gfp-check-box">\u2713</span>
+              <span class="gfp-type-dot" style="background:${typeColors[type]}"></span>
+              ${escapeHtml(type)}
+              <span class="gfp-check-count">${count}</span>
+            </button>
           `).join('')}
         </div>
-        <div class="gp-zoom-controls">
-          <button class="gp-zoom-btn" id="gp-zoom-out">\u2212</button>
-          <button class="gp-zoom-btn" id="gp-zoom-reset">\u27F3</button>
-          <button class="gp-zoom-btn" id="gp-zoom-in">+</button>
-        </div>
-      `;
-    } else if (tab === 'legend') {
-      content.innerHTML = Object.entries(typeCount)
-        .sort((a, b) => b[1] - a[1])
-        .map(([type, count]) => `
-          <div class="gp-legend-item" data-legend-type="${escapeHtml(type)}">
-            <div class="gp-legend-dot" style="background:${typeColors[type] || '#666'};box-shadow:0 0 8px ${typeColors[type] || '#666'}40;"></div>
-            <span class="gp-legend-name">${escapeHtml(type)}</span>
-            <span class="gp-legend-count">${count}</span>
-          </div>
-        `).join('') + `
-        <div class="gp-zoom-controls">
-          <button class="gp-zoom-btn" id="gp-zoom-out">\u2212</button>
-          <button class="gp-zoom-btn" id="gp-zoom-reset">\u27F3</button>
-          <button class="gp-zoom-btn" id="gp-zoom-in">+</button>
-        </div>
-      `;
-    } else if (tab === 'filter') {
-      content.innerHTML = `
-        <div class="gp-legend-item${!activeFilterType ? ' active' : ''}" data-filter-type="" style="${!activeFilterType ? 'background:rgba(208,188,255,0.08)' : ''}">
-          <span class="gp-legend-name" style="font-weight:500;">Show All</span>
-          <span class="gp-legend-count">${nodes.length}</span>
-        </div>
-        ${Object.entries(typeCount).sort((a,b) => b[1] - a[1]).map(([type, count]) => `
-          <div class="gp-legend-item${activeFilterType === type ? ' active' : ''}" data-filter-type="${escapeHtml(type)}" style="${activeFilterType === type ? 'background:rgba(208,188,255,0.08)' : ''}">
-            <div class="gp-legend-dot" style="background:${typeColors[type] || '#666'};"></div>
-            <span class="gp-legend-name">${escapeHtml(type)}</span>
-            <span class="gp-legend-count">${count}</span>
-          </div>
-        `).join('')}
-      `;
-    } else if (tab === 'search') {
-      content.innerHTML = `
-        <input type="text" class="gp-search" id="gp-search-input" placeholder="Start typing to search nodes" autocomplete="off" />
-        <div id="gp-search-results" style="margin-top:10px;"></div>
-      `;
-      const input = document.getElementById('gp-search-input');
-      if (input) {
-        input.focus();
-        input.addEventListener('input', () => {
-          const q = input.value.toLowerCase();
-          const results = document.getElementById('gp-search-results');
-          if (!q) { results.innerHTML = ''; return; }
-          const matches = nodes.filter(n => n.id.toLowerCase().includes(q) || n.type.toLowerCase().includes(q)).slice(0, 12);
-          results.innerHTML = matches.length === 0
-            ? '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">No matches</div>'
-            : matches.map(n => `
-              <div class="gp-legend-item" data-node-id="${escapeHtml(n.id)}">
-                <div class="gp-legend-dot" style="background:${n.color};box-shadow:0 0 6px ${n.color}60;"></div>
-                <span class="gp-legend-name">${escapeHtml(n.id)}</span>
-                <span class="gp-legend-count">${n.type}</span>
-              </div>
-            `).join('');
-          bindNodeClicks();
-        });
-      }
-    }
+      </div>
+    `;
 
-    // Bind event handlers
-    bindNodeClicks();
-    bindLegendHovers();
-    bindFilterClicks();
-    bindZoomControls();
+    const statsHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">Statistics</div>
+        <div style="font-size:11px;color:var(--text-secondary);line-height:1.8;">
+          Visible: ${nodes.filter(n => n._visible).length} / ${allNodes.length} nodes<br>
+          Edges: ${edges.filter(e => e.source._visible && e.target._visible).length}<br>
+          Types: ${activeTypes.size} / ${Object.keys(typeCounts).length}<br>
+          Density: ${nodes.length > 1 ? (2 * edges.length / (nodes.length * (nodes.length - 1))).toFixed(3) : '0'}
+        </div>
+      </div>
+    `;
+
+    panel.innerHTML = searchHtml + viewHtml + layoutHtml + filterHtml + statsHtml;
+
+    // Bind view switchers
+    panel.querySelectorAll('[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentView = btn.dataset.view;
+        switchView();
+        renderFilterPanel();
+      });
+    });
+
+    // Bind layout switchers
+    panel.querySelectorAll('[data-layout]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyLayout(btn.dataset.layout);
+        renderFilterPanel();
+        draw();
+      });
+    });
+
+    // Bind type filters
+    panel.querySelectorAll('[data-type-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = btn.dataset.typeFilter;
+        if (activeTypes.has(type)) activeTypes.delete(type);
+        else activeTypes.add(type);
+        applyFilters();
+        renderFilterPanel();
+        draw();
+      });
+    });
+
+    // Bind search
+    const searchInput = document.getElementById('gfp-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.toLowerCase();
+        if (!q) {
+          allNodes.forEach(n => { n._dimmed = false; });
+        } else {
+          allNodes.forEach(n => {
+            n._dimmed = !n.id.toLowerCase().includes(q) && !n.type.toLowerCase().includes(q);
+          });
+        }
+        draw();
+      });
+    }
   }
 
-  function bindNodeClicks() {
-    document.querySelectorAll('[data-node-id]').forEach(el => {
+  function applyFilters() {
+    allNodes.forEach(n => {
+      n._visible = activeTypes.has(n.type);
+      n._dimmed = false;
+    });
+    nodes = allNodes.filter(n => n._visible);
+    edges = allEdges.filter(e => e.source._visible && e.target._visible);
+    updateStatusBar();
+  }
+
+  function switchView() {
+    const canvasContainer = document.getElementById('graph-container');
+    const tableContainer = document.getElementById('graph-table-container');
+    if (currentView === 'table') {
+      canvasContainer.style.display = 'none';
+      tableContainer.style.display = 'flex';
+      renderTable();
+    } else {
+      canvasContainer.style.display = '';
+      tableContainer.style.display = 'none';
+    }
+    const layoutSection = document.getElementById('gfp-layout-section');
+    if (layoutSection) layoutSection.style.display = currentView === 'table' ? 'none' : '';
+  }
+
+  // --- Table view ---
+  function renderTable() {
+    const tc = document.getElementById('graph-table-container');
+    if (!tc) return;
+    const sorted = [...nodes].filter(n => n._visible).sort((a, b) => b.degree - a.degree);
+    tc.innerHTML = `
+      <table class="graph-table">
+        <thead>
+          <tr>
+            <th>Entity</th>
+            <th>Type</th>
+            <th>Connections</th>
+            <th>Observations</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sorted.map(n => `
+            <tr data-table-node="${escapeHtml(n.id)}">
+              <td class="entity-name"><span class="entity-type-dot" style="background:${n.color}"></span>${escapeHtml(n.id)}</td>
+              <td>${escapeHtml(n.type)}</td>
+              <td>${n.degree}</td>
+              <td>${n.observations.length}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    tc.querySelectorAll('[data-table-node]').forEach(row => {
+      row.addEventListener('click', () => {
+        const node = allNodes.find(n => n.id === row.dataset.tableNode);
+        if (node) { selectedNode = node; showInspector(node); }
+      });
+    });
+  }
+
+  // --- Inspector (right panel) ---
+  function showInspector(node) {
+    const inspector = document.getElementById('graph-inspector');
+    if (!inspector) return;
+    if (!node) {
+      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>Select a node to inspect</div>';
+      return;
+    }
+    const related = allEdges.filter(e => e.source === node || e.target === node);
+    const obsHtml = node.observations.length > 0
+      ? node.observations.map(o => `<div class="gi-obs-item">${escapeHtml(o)}</div>`).join('')
+      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">No observations</div>';
+    const relHtml = related.length > 0
+      ? related.map(e => {
+        const dir = e.source === node;
+        const other = dir ? e.target : e.source;
+        return `<div class="gi-rel-item">
+          <span class="gi-rel-arrow">${dir ? '\u2192' : '\u2190'}</span>
+          <span class="gi-rel-type">${escapeHtml(e.type)}</span>
+          <span class="gi-rel-target" data-inspector-nav="${escapeHtml(other.id)}">${escapeHtml(other.id)}</span>
+        </div>`;
+      }).join('')
+      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">No relations</div>';
+
+    inspector.innerHTML = `
+      <div class="gi-header">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${node.color};flex-shrink:0;"></span>
+          <div class="gi-name">${escapeHtml(node.id)}</div>
+        </div>
+        <div class="gi-type">${escapeHtml(node.type)}</div>
+      </div>
+      <div class="gi-stats">
+        <div class="gi-stat"><div class="gi-stat-value">${related.length}</div><div class="gi-stat-label">Connections</div></div>
+        <div class="gi-stat"><div class="gi-stat-value">${node.observations.length}</div><div class="gi-stat-label">Evidence</div></div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">Observations <span class="gi-section-count">${node.observations.length}</span></div>
+        ${obsHtml}
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">Relations <span class="gi-section-count">${related.length}</span></div>
+        ${relHtml}
+      </div>
+    `;
+
+    // Navigation: click a related entity to inspect it
+    inspector.querySelectorAll('[data-inspector-nav]').forEach(el => {
       el.addEventListener('click', () => {
-        const node = nodes.find(n => n.id === el.dataset.nodeId);
-        if (node) {
-          selectedNode = node;
-          cam.x = node.x;
-          cam.y = node.y;
-          cam.zoom = Math.max(cam.zoom, 1);
-          showDetail(node);
+        const target = allNodes.find(n => n.id === el.dataset.inspectorNav);
+        if (target) {
+          selectedNode = target;
+          cam.x = target.x; cam.y = target.y;
+          showInspector(target);
           draw();
         }
       });
     });
   }
 
-  function bindLegendHovers() {
-    document.querySelectorAll('[data-legend-type]').forEach(el => {
-      el.addEventListener('mouseenter', () => {
-        const type = el.dataset.legendType;
-        nodes.forEach(n => { n._dimmed = n.type !== type; });
-        draw();
-      });
-      el.addEventListener('mouseleave', () => {
-        nodes.forEach(n => { n._dimmed = false; });
-        draw();
-      });
-    });
+  // --- Status bar ---
+  function updateStatusBar() {
+    const gsNodes = document.getElementById('gs-nodes');
+    const gsEdges = document.getElementById('gs-edges');
+    const gsLayout = document.getElementById('gs-layout');
+    if (gsNodes) gsNodes.textContent = `${nodes.filter(n => n._visible).length} nodes`;
+    if (gsEdges) gsEdges.textContent = `${edges.filter(e => e.source._visible && e.target._visible).length} edges`;
+    if (gsLayout) gsLayout.textContent = currentLayout;
   }
 
-  function bindFilterClicks() {
-    document.querySelectorAll('[data-filter-type]').forEach(el => {
-      el.addEventListener('click', () => {
-        const type = el.dataset.filterType || null;
-        activeFilterType = type;
-        nodes.forEach(n => { n._dimmed = type ? n.type !== type : false; });
-        draw();
-        renderPanelTab('filter');
-      });
-    });
-  }
-
-  function bindZoomControls() {
-    const zi = document.getElementById('gp-zoom-in');
-    const zo = document.getElementById('gp-zoom-out');
-    const zr = document.getElementById('gp-zoom-reset');
-    if (zi) zi.onclick = () => { cam.zoom = Math.min(cam.zoom * 1.3, 4); draw(); };
-    if (zo) zo.onclick = () => { cam.zoom = Math.max(cam.zoom / 1.3, 0.2); draw(); };
-    if (zr) zr.onclick = () => { cam = { x: 0, y: 0, zoom: 1 }; draw(); };
-  }
-
-  // Tab switching
-  document.querySelectorAll('.gp-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.gp-tab').forEach(t2 => t2.classList.remove('active'));
-      tab.classList.add('active');
-      renderPanelTab(tab.dataset.gptab);
-    });
-  });
-
-  renderPanelTab('stats');
-
-  function showDetail(node) {
-    const drawer = document.getElementById('graph-detail-drawer');
-    if (!drawer) return;
-    if (!node) {
-      drawer.classList.remove('open');
-      return;
-    }
-    const related = edges.filter(e => e.source === node || e.target === node);
-    const obsHtml = node.observations.length > 0
-      ? node.observations.map(o => `<div class="graph-obs-item">${escapeHtml(o)}</div>`).join('')
-      : `<div class="graph-detail-muted">${t('noObservations') || 'No observations'}</div>`;
-    const relHtml = related.length > 0
-      ? related.map(e => {
-        const dir = e.source === node;
-        const other = dir ? e.target : e.source;
-        return `<div class="graph-rel-item"><span class="graph-rel-arrow">${dir ? '\u2192' : '\u2190'}</span> <span class="graph-rel-type">${escapeHtml(e.type)}</span> <strong>${escapeHtml(other.id)}</strong></div>`;
-      }).join('')
-      : `<div class="graph-detail-muted">${t('noRelations') || 'No relations'}</div>`;
-
-    drawer.innerHTML = `
-      <div class="graph-detail-header">
-        <div class="graph-detail-dot" style="background:${node.color};box-shadow:0 0 12px ${hexRGBA(node.color, 0.5)}"></div>
-        <div style="flex:1;">
-          <div class="graph-detail-name">${escapeHtml(node.id)}</div>
-          <div class="graph-detail-type">${escapeHtml(node.type)}</div>
-        </div>
-        <button onclick="document.getElementById('graph-detail-drawer').classList.remove('open')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:4px 8px;">\u2715</button>
-      </div>
-      <div style="display:flex;gap:0;">
-        <div class="graph-detail-section" style="flex:1;border-right:1px solid rgba(255,255,255,0.04);">
-          <h3>${t('observations')} <span class="graph-detail-count">${node.observations.length}</span></h3>
-          ${obsHtml}
-        </div>
-        <div class="graph-detail-section" style="flex:1;">
-          <h3>${t('relations')} <span class="graph-detail-count">${related.length}</span></h3>
-          ${relHtml}
-        </div>
-      </div>
-    `;
-    drawer.classList.add('open');
-  }
-
-  // --- Animation loop — stops physics when settled, breathing is visual-only ---
+  // --- Animation loop ---
   let animFrame = null;
   function tick() {
-    if (!isSettled) {
-      simulate();
-    }
+    if (!isSettled && currentLayout === 'force') simulate();
     draw();
     animFrame = requestAnimationFrame(tick);
   }
 
   function wakeUp() {
-    isSettled = false;
-    settleCountdown = 0;
-    nodes.forEach(n => {
-      n.vx += (Math.random() - 0.5) * 0.5;
-      n.vy += (Math.random() - 0.5) * 0.5;
-    });
+    if (currentLayout !== 'force') return;
+    isSettled = false; settleCountdown = 0;
+    nodes.forEach(n => { n.vx += (Math.random() - 0.5) * 0.3; n.vy += (Math.random() - 0.5) * 0.3; });
   }
 
   // --- Mouse interaction ---
-  function getMouseWorld(e) {
-    const r = canvas.getBoundingClientRect();
-    return screenToWorld(e.clientX - r.left, e.clientY - r.top);
-  }
-
   canvas.addEventListener('mousemove', (e) => {
     const r = canvas.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;
 
-    // Panning
     if (panStart) {
-      cam.x -= (e.movementX) / cam.zoom;
-      cam.y -= (e.movementY) / cam.zoom;
+      cam.x -= e.movementX / cam.zoom;
+      cam.y -= e.movementY / cam.zoom;
       draw();
       return;
     }
 
-    // Dragging node
     if (dragNode) {
       const w = screenToWorld(sx, sy);
       dragNode.x = w.x; dragNode.y = w.y;
@@ -1619,10 +1605,10 @@ function renderGraph(graph) {
       return;
     }
 
-    // Hit test
     const w = screenToWorld(sx, sy);
     let found = null;
     for (const node of nodes) {
+      if (!node._visible) continue;
       const dx = w.x - node.x, dy = w.y - node.y;
       if (dx * dx + dy * dy < (node.radius + 4) * (node.radius + 4)) { found = node; break; }
     }
@@ -1632,7 +1618,7 @@ function renderGraph(graph) {
       if (found) {
         const tt = document.getElementById('graph-tooltip');
         tt.querySelector('.graph-tooltip-name').textContent = found.id;
-        tt.querySelector('.graph-tooltip-type').textContent = `${found.type} · ${found.observations.length} ${t('observation_s')}`;
+        tt.querySelector('.graph-tooltip-type').textContent = `${found.type} \u00B7 ${found.observations.length} obs \u00B7 ${found.degree} conn`;
         tt.style.left = (sx + 16) + 'px';
         tt.style.top = (sy - 20) + 'px';
         tt.classList.add('visible');
@@ -1644,13 +1630,8 @@ function renderGraph(graph) {
   });
 
   canvas.addEventListener('mousedown', (e) => {
-    if (hoveredNode) {
-      dragNode = hoveredNode;
-      canvas.style.cursor = 'grabbing';
-    } else {
-      panStart = { x: e.clientX, y: e.clientY };
-      canvas.style.cursor = 'grabbing';
-    }
+    if (hoveredNode) { dragNode = hoveredNode; canvas.style.cursor = 'grabbing'; }
+    else { panStart = { x: e.clientX, y: e.clientY }; canvas.style.cursor = 'grabbing'; }
   });
 
   canvas.addEventListener('mouseup', () => {
@@ -1658,15 +1639,14 @@ function renderGraph(graph) {
     if (panStart) { panStart = null; canvas.style.cursor = hoveredNode ? 'pointer' : 'grab'; }
   });
 
-  canvas.addEventListener('click', (e) => {
+  canvas.addEventListener('click', () => {
     if (hoveredNode) {
       selectedNode = hoveredNode;
-      showDetail(selectedNode);
-      wakeUp();
+      showInspector(selectedNode);
+      draw();
     } else {
-      // Click on empty space: deselect and close drawer
       selectedNode = null;
-      showDetail(null);
+      showInspector(null);
       draw();
     }
   });
@@ -1677,12 +1657,10 @@ function renderGraph(graph) {
     draw();
   });
 
-  // Zoom with mouse wheel
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
     const newZoom = Math.max(0.15, Math.min(cam.zoom * factor, 5));
-    // Zoom toward mouse position
     const r = canvas.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     const wx = (mx - W / 2) / cam.zoom + cam.x;
@@ -1693,13 +1671,23 @@ function renderGraph(graph) {
     draw();
   }, { passive: false });
 
-  // Start with a slight zoom-out for large graphs
-  if (nodes.length > 60) cam.zoom = 0.55;
-  else if (nodes.length > 30) cam.zoom = 0.7;
+  // Zoom controls in status bar
+  const gzIn = document.getElementById('gz-in');
+  const gzOut = document.getElementById('gz-out');
+  const gzReset = document.getElementById('gz-reset');
+  if (gzIn) gzIn.onclick = () => { cam.zoom = Math.min(cam.zoom * 1.3, 5); draw(); };
+  if (gzOut) gzOut.onclick = () => { cam.zoom = Math.max(cam.zoom / 1.3, 0.15); draw(); };
+  if (gzReset) gzReset.onclick = () => { cam = { x: 0, y: 0, zoom: 1 }; draw(); };
 
+  // Save state for external access
+  _graphState = { nodes: allNodes, edges: allEdges, selectedNode, showInspector, draw };
+
+  // Initialize
+  applyLayout(currentLayout);
+  renderFilterPanel();
+  updateStatusBar();
   canvas.style.cursor = 'grab';
   tick();
-  // Continuous loop — no timeout needed
 }
 
 // ============================================================
