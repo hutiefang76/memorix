@@ -2550,7 +2550,7 @@ async function loadTeam() {
     container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   }
 
-  const data = await api('team&scope=' + teamScope);
+  const data = await api('team?scope=' + teamScope);
   if (!data || data.unavailable) {
     container.innerHTML = `
       <div class="page-header">
