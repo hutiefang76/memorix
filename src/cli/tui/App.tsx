@@ -117,6 +117,8 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       handleCommand('/home');
     } else if (view === 'integrate' && ch === 'h') {
       handleCommand('/home');
+    } else if ((view === 'background' || view === 'dashboard') && ch === 'h') {
+      handleCommand('/home');
     } else if (view === 'background' && (ch === '1' || ch === '2' || ch === '3')) {
       handleBackgroundAction(ch);
     } else if (view === 'background' && ch === 'w' && background.dashboard) {
@@ -766,10 +768,10 @@ fi
                   ? 'integrate: press 1-9, or h for home'
                 : view === 'background'
                   ? background.running
-                    ? 'background: press w/1/2/3'
-                    : 'background: press 1/2'
+                    ? 'background: press w/1/2/3, or h for home'
+                    : 'background: press 1/2, or h for home'
                   : view === 'dashboard'
-                    ? 'dashboard: press 1/2'
+                    ? 'dashboard: press 1/2, or h for home'
                     : 'action view active'
           }
         />
