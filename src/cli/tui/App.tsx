@@ -33,6 +33,7 @@ import {
   getProjectInfo,
   getHealthInfo,
   getRecentMemories,
+  getHighValueSignals,
   getBackgroundStatus,
   searchMemories,
   storeQuickMemory,
@@ -59,6 +60,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   });
   const [background, setBackground] = useState<BackgroundInfo>({ running: false, healthy: false });
   const [recentMemories, setRecentMemories] = useState<MemoryItem[]>([]);
+  const [highValueSignals, setHighValueSignals] = useState<MemoryItem[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [doctor, setDoctor] = useState<DoctorResult | null>(null);
@@ -70,15 +72,17 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
     let cancelled = false;
     (async () => {
       try {
-        const [proj, recent, bg] = await Promise.all([
+        const [proj, recent, signals, bg] = await Promise.all([
           getProjectInfo(),
-          getRecentMemories(8),
+          getRecentMemories(6),
+          getHighValueSignals(3),
           getBackgroundStatus(),
         ]);
         if (cancelled) return;
 
         setProject(proj);
         setRecentMemories(recent);
+        setHighValueSignals(signals);
         setBackground(bg);
 
         const h = await getHealthInfo(proj?.id);
@@ -246,7 +250,7 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         return <DashboardView background={background} />;
       case 'home':
       default:
-        return <HomeView recentMemories={recentMemories} project={project} loading={loading} />;
+        return <HomeView recentMemories={recentMemories} highValueSignals={highValueSignals} project={project} loading={loading} />;
     }
   };
 
