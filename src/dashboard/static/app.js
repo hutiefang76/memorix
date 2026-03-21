@@ -2534,7 +2534,7 @@ async function loadTeam() {
         </div>
         <div>
           <h1 class="page-title">${t('teamTitle')}</h1>
-          <p class="page-subtitle">${t('teamSubtitle')}${data.sessions != null ? ' &middot; ' + data.sessions + ' session(s)' : ''}</p>
+          <p class="page-subtitle">${t('teamSubtitle')}${data.sessions != null ? ' &middot; ' + data.sessions + ' session(s)' : ''}${data._meta ? ' &middot; ' + data._meta.runtimeAgents + ' live, ' + data._meta.persistedAgents + ' from file' : ''}</p>
         </div>
       </div>
       <div class="team-header-right">
@@ -2584,7 +2584,7 @@ async function loadTeam() {
               <div class="team-agent-row${a.status !== 'active' ? ' inactive' : ''}">
                 <div class="team-agent-status ${a.status === 'active' ? 'active' : 'offline'}"></div>
                 <div class="team-agent-info">
-                  <div class="team-agent-name">${escapeHtml(a.name)}</div>
+                  <div class="team-agent-name">${escapeHtml(a.name)} <span style="font-size:9px;padding:1px 5px;border-radius:4px;font-weight:500;margin-left:4px;${a.source === 'persisted' ? 'background:rgba(255,171,64,0.12);color:var(--accent-amber);' : 'background:rgba(105,240,174,0.12);color:var(--accent-green);'}">${a.source === 'persisted' ? 'file' : 'live'}</span></div>
                   <div class="team-agent-meta">
                     <span>${a.role ? escapeHtml(a.role) : 'no role'}</span>
                     ${a.capabilities && a.capabilities.length ? a.capabilities.map(c => '<span class="team-cap-tag">' + escapeHtml(c) + '</span>').join('') : ''}

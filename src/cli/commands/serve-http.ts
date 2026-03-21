@@ -543,6 +543,7 @@ export default defineCommand({
 
           // Merge file-based stdio agent state (if any) for cross-IDE visibility
           let fileAgents: any[] = [];
+          let fileTasks: any[] = [];
           try {
             const { dataDir: teamDataDir } = await resolveRequestProject(url);
             const teamStatePath = pathModule.default.join(teamDataDir, 'team-state.json');
@@ -550,11 +551,26 @@ export default defineCommand({
             const snap = JSON.parse(raw);
             if (snap.version === 1 && snap.registry?.agents) {
               const httpAgentIds = new Set(agents.map((a: any) => a.id));
-              fileAgents = (snap.registry.agents as any[]).filter(
-                (a: any) => !httpAgentIds.has(a.id),
+              // Handle both object-map and array formats for agents
+              const rawAgents = snap.registry.agents;
+              const agentList = Array.isArray(rawAgents)
+                ? rawAgents
+                : Object.values(rawAgents);
+              fileAgents = agentList.filter(
+                (a: any) => a && a.id && !httpAgentIds.has(a.id),
               );
             }
-          } catch { /* no file-based state — that's fine */ }
+            // Also merge file-based tasks if present
+            if (snap.taskManager?.tasks) {
+              const rawTasks = snap.taskManager.tasks;
+              fileTasks = Array.isArray(rawTasks) ? rawTasks : Object.values(rawTasks);
+            }
+          } catch (err) {
+            // Log merge failures instead of silently swallowing
+            if (err && (err as any).code !== 'ENOENT') {
+              console.error('[memorix] Warning: failed to merge team-state.json:', (err as Error).message);
+            }
+          }
 
           sendJson({
             agents: [
@@ -562,14 +578,20 @@ export default defineCommand({
                 ...a,
                 unread: sharedTeam.messageBus.getUnreadCount(a.id),
                 transport: 'http',
+                source: 'runtime',
               })),
-              ...fileAgents.map((a: any) => ({ ...a, transport: 'stdio' })),
+              ...fileAgents.map((a: any) => ({ ...a, transport: 'stdio', source: 'persisted' })),
             ],
             activeCount: sharedTeam.registry.getActiveCount() + fileAgents.filter((a: any) => a.status === 'active').length,
             locks,
-            tasks,
+            tasks: [...tasks, ...fileTasks.filter((ft: any) => !tasks.some((t: any) => t.id === ft.id))],
             availableTasks: available.length,
             sessions: sessions.size,
+            _meta: {
+              runtimeAgents: agents.length,
+              persistedAgents: fileAgents.length,
+              source: 'Runtime state from current control-plane process, merged with persisted team-state.json for cross-IDE visibility.',
+            },
           });
           return;
         }
@@ -719,10 +741,23 @@ export default defineCommand({
         }
 
         if (apiPath === '/graph') {
-          const { dataDir: graphDataDir } = await resolveRequestProject(url);
-          const { loadGraphJsonl } = await import('../../store/persistence.js');
-          const graph = await loadGraphJsonl(graphDataDir);
-          sendJson(graph);
+          const { projectId: graphProjectId, dataDir: graphDataDir } = await resolveRequestProject(url);
+          const { loadGraphJsonl, loadObservationsJson } = await import('../../store/persistence.js');
+          const fullGraph = await loadGraphJsonl(graphDataDir);
+
+          // Project-scope the graph: only include entities that have observations in this project
+          const allObs = await loadObservationsJson(graphDataDir) as Array<{ projectId?: string; entityName?: string; status?: string }>;
+          const projectEntityNames = new Set(
+            allObs
+              .filter(o => o.projectId === graphProjectId && (o.status ?? 'active') === 'active' && o.entityName)
+              .map(o => o.entityName!)
+          );
+
+          const entities = fullGraph.entities.filter(e => projectEntityNames.has(e.name));
+          const entityNameSet = new Set(entities.map(e => e.name));
+          const relations = fullGraph.relations.filter(r => entityNameSet.has(r.from) && entityNameSet.has(r.to));
+
+          sendJson({ entities, relations });
           return;
         }
 
