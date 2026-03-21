@@ -122,36 +122,41 @@ export function CommandBar({ onSubmit, onExit }: CommandBarProps): React.ReactEl
 
   return (
     <Box flexDirection="column">
-      {/* Command Palette -- floats above input, OpenCode style */}
+      {/* Command Palette (above input) */}
       {showPalette && filteredCommands.length > 0 && (
         <Box
           flexDirection="column"
-          marginX={2}
-          marginBottom={0}
+          borderStyle="single"
+          borderColor={COLORS.border}
+          paddingX={1}
+          marginX={1}
         >
-          {filteredCommands.map((cmd, i) => {
-            const selected = i === clampedIndex;
-            return (
-              <Box key={cmd.name}>
-                <Text
-                  color={selected ? COLORS.text : COLORS.muted}
-                  bold={selected}
-                  backgroundColor={selected ? '#3a3a3a' : undefined}
-                >
-                  {' '}{cmd.name.padEnd(14)}{' '}
-                </Text>
-                <Text color={selected ? COLORS.text : COLORS.muted}>
-                  {' '}{cmd.description}
-                </Text>
-              </Box>
-            );
-          })}
+          <Text color={COLORS.accentDim} bold>Commands</Text>
+          {filteredCommands.map((cmd, i) => (
+            <Box key={cmd.name}>
+              <Text
+                color={i === clampedIndex ? COLORS.accent : COLORS.text}
+                bold={i === clampedIndex}
+              >
+                {i === clampedIndex ? '▸ ' : '  '}
+                {cmd.name.padEnd(16)}
+              </Text>
+              <Text color={COLORS.muted}>{cmd.description}</Text>
+              {cmd.alias && <Text color={COLORS.textDim}> ({cmd.alias})</Text>}
+            </Box>
+          ))}
+          <Text color={COLORS.muted}>↑↓ navigate · Tab complete · Enter select</Text>
         </Box>
       )}
 
-      {/* Input area -- left accent border, OpenCode style */}
-      <Box marginX={1} paddingLeft={1}>
-        <Text color={COLORS.accent}>{'|'} </Text>
+      {/* Input bar */}
+      <Box
+        borderStyle="single"
+        borderColor={input.startsWith('/') ? COLORS.accent : COLORS.border}
+        paddingX={1}
+        marginX={1}
+      >
+        <Text color={COLORS.accent} bold>❯ </Text>
         <Text color={COLORS.text}>
           {input || ''}
         </Text>
