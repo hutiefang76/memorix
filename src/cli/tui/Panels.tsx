@@ -1,7 +1,8 @@
 /**
- * Panels — Content panels for the main work area
+ * Panels -- Content views for Memorix TUI
  *
- * HomeView, SearchResultsView, DoctorView, ProjectView, BackgroundView
+ * HomeView, RecentView, SearchResultsView, DoctorView, ProjectView,
+ * BackgroundView, DashboardView
  */
 
 import React from 'react';
@@ -13,17 +14,19 @@ import type {
   DoctorResult,
   ProjectInfo,
   BackgroundInfo,
+  HealthInfo,
 } from './data.js';
 
-// ── Home View ──────────────────────────────────────────────────
+// ── Home View (clean: project summary + status, NO recent list) ──
 
 interface HomeViewProps {
-  recentMemories: MemoryItem[];
   project: ProjectInfo | null;
+  health: HealthInfo;
+  background: BackgroundInfo;
   loading: boolean;
 }
 
-export function HomeView({ recentMemories, project, loading }: HomeViewProps): React.ReactElement {
+export function HomeView({ project, health, background, loading }: HomeViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
       {/* Project summary */}
@@ -50,24 +53,78 @@ export function HomeView({ recentMemories, project, loading }: HomeViewProps): R
         )}
       </Box>
 
-      {/* Recent memories */}
-      <Box flexDirection="column">
-        <Text color={COLORS.accentDim} bold>Recent Memories</Text>
+      {/* System status summary */}
+      <Box flexDirection="column" marginBottom={1}>
+        <Text color={COLORS.accentDim} bold>Status</Text>
         <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
-        {loading ? (
-          <Text color={COLORS.muted}>Loading...</Text>
-        ) : recentMemories.length === 0 ? (
-          <Text color={COLORS.muted}>No memories yet. Use /remember to store one.</Text>
-        ) : (
-          recentMemories.map((m) => (
-            <Box key={m.id}>
-              <Text color={COLORS.muted}>[{(TYPE_ICONS[m.type] || '·')}] </Text>
-              <Text color={COLORS.textDim}>#{m.id} </Text>
-              <Text color={COLORS.text}>{m.title.slice(0, 60)}{m.title.length > 60 ? '…' : ''}</Text>
-            </Box>
-          ))
-        )}
+        <Box>
+          <Text color={COLORS.muted}>{'Memories'.padEnd(12)}</Text>
+          <Text color={COLORS.text}>{health.activeMemories} active</Text>
+        </Box>
+        <Box>
+          <Text color={COLORS.muted}>{'Search'.padEnd(12)}</Text>
+          <Text color={health.searchMode.includes('hybrid') ? COLORS.success : COLORS.warning}>{health.searchMode}</Text>
+        </Box>
+        <Box>
+          <Text color={COLORS.muted}>{'Embedding'.padEnd(12)}</Text>
+          <Text color={health.embeddingProvider === 'ready' ? COLORS.success : COLORS.muted}>{health.embeddingProvider}</Text>
+        </Box>
+        <Box>
+          <Text color={COLORS.muted}>{'Background'.padEnd(12)}</Text>
+          <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
+            {background.healthy ? 'Running' : background.running ? 'Unhealthy' : 'Stopped'}
+          </Text>
+          {background.port && <Text color={COLORS.textDim}> :{background.port}</Text>}
+        </Box>
       </Box>
+
+      {/* Lightweight recent hint (no list dump) */}
+      <Text color={COLORS.muted}>Use /recent to view recent memory activity</Text>
+    </Box>
+  );
+}
+
+// ── Recent View (standalone, with dev noise filtering) ────────
+
+interface RecentViewProps {
+  recentMemories: MemoryItem[];
+  loading: boolean;
+}
+
+const DEV_NOISE_PATTERNS = [
+  /^Revert\s+"feat:/i,
+  /^Revert\s+"fix:/i,
+  /^fix:.*TUI/i,
+  /^feat:.*TUI.*moderniz/i,
+  /^feat:.*center-first/i,
+  /^feat:.*full TUI/i,
+];
+
+export function RecentView({ recentMemories, loading }: RecentViewProps): React.ReactElement {
+  const filtered = recentMemories.filter(m =>
+    !DEV_NOISE_PATTERNS.some(p => p.test(m.title))
+  );
+
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Text color={COLORS.accentDim} bold>Recent Memory Activity</Text>
+      <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
+      {loading ? (
+        <Text color={COLORS.muted}>Loading...</Text>
+      ) : filtered.length === 0 ? (
+        <Text color={COLORS.muted}>No recent activity. Use /remember to store a memory.</Text>
+      ) : (
+        filtered.map((m) => (
+          <Box key={m.id}>
+            <Text color={COLORS.muted}>[{(TYPE_ICONS[m.type] || '.')}] </Text>
+            <Text color={COLORS.textDim}>#{m.id} </Text>
+            <Text color={COLORS.text}>{m.title.slice(0, 60)}{m.title.length > 60 ? '...' : ''}</Text>
+          </Box>
+        ))
+      )}
+      {filtered.length < recentMemories.length && (
+        <Text color={COLORS.textDim}>({recentMemories.length - filtered.length} dev/noise entries hidden)</Text>
+      )}
     </Box>
   );
 }
@@ -140,20 +197,28 @@ export function DoctorView({ doctor, loading }: DoctorViewProps): React.ReactEle
       ) : !doctor ? (
         <Text color={COLORS.warning}>Failed to run diagnostics.</Text>
       ) : (
-        doctor.sections.map((section, i) => (
-          <Box key={i} flexDirection="column" marginBottom={1}>
-            <Text color={COLORS.text} bold>{section.title}</Text>
-            {section.items.map((item, j) => (
-              <Box key={j}>
-                <Text color={STATUS_COLORS[item.status] || COLORS.muted}>
-                  {STATUS_ICONS[item.status] || '·'}{' '}
-                </Text>
-                <Text color={COLORS.muted}>{item.label.padEnd(12)}</Text>
-                <Text color={COLORS.text}>{item.value}</Text>
-              </Box>
-            ))}
+        <Box flexDirection="column">
+          {doctor.sections.map((section, i) => (
+            <Box key={i} flexDirection="column" marginBottom={1}>
+              <Text color={COLORS.text} bold>{section.title}</Text>
+              {section.items.map((item, j) => (
+                <Box key={j}>
+                  <Text color={STATUS_COLORS[item.status] || COLORS.muted}>
+                    {STATUS_ICONS[item.status] || '.'}{' '}
+                  </Text>
+                  <Text color={COLORS.muted}>{item.label.padEnd(12)}</Text>
+                  <Text color={COLORS.text}>{item.value}</Text>
+                </Box>
+              ))}
+            </Box>
+          ))}
+
+          {/* Next actions */}
+          <Box marginTop={1} flexDirection="column">
+            <Text color={COLORS.accentDim} bold>Next</Text>
+            <Text color={COLORS.muted}>  /dashboard  /background  /search  /recent</Text>
           </Box>
-        ))
+        </Box>
       )}
     </Box>
   );
@@ -261,13 +326,28 @@ export function BackgroundView({ background, loading }: BackgroundViewProps): Re
             </Box>
           )}
 
-          {/* Action hints */}
+          {/* Actions -- real executable entries */}
           <Box marginTop={1} flexDirection="column">
-            <Text color={COLORS.muted}>
-              {background.running
-                ? 'Use CLI: memorix background stop|restart|logs'
-                : 'Use CLI: memorix background start'}
-            </Text>
+            <Text color={COLORS.accentDim} bold>Actions</Text>
+            <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
+            {background.running ? (
+              <Box flexDirection="column">
+                {background.dashboard && (
+                  <Box><Text color={COLORS.accent}>  w  Open dashboard  </Text><Text color={COLORS.textDim}>{background.dashboard}</Text></Box>
+                )}
+                <Box><Text color={COLORS.text}>  1  Restart control plane</Text></Box>
+                <Box><Text color={COLORS.text}>  2  Stop control plane</Text></Box>
+                <Box><Text color={COLORS.text}>  3  View logs</Text></Box>
+                {background.mcp && (
+                  <Box><Text color={COLORS.muted}>  MCP: {background.mcp}</Text></Box>
+                )}
+              </Box>
+            ) : (
+              <Box flexDirection="column">
+                <Box><Text color={COLORS.success}>  1  Start control plane</Text></Box>
+                <Box><Text color={COLORS.text}>  2  Launch standalone dashboard</Text></Box>
+              </Box>
+            )}
           </Box>
         </Box>
       )}
@@ -289,21 +369,24 @@ export function DashboardView({ background }: DashboardViewProps): React.ReactEl
 
       {background.healthy && background.dashboard ? (
         <Box flexDirection="column">
-          <Box>
-            <Text color={COLORS.muted}>URL  </Text>
+          <Box marginBottom={1}>
+            <Text color={COLORS.muted}>{'URL'.padEnd(12)}</Text>
             <Text color={COLORS.accent} bold>{background.dashboard}</Text>
           </Box>
-          <Box marginTop={1}>
-            <Text color={COLORS.muted}>Open this URL in your browser to view the Memorix dashboard.</Text>
-          </Box>
+          <Text color={COLORS.accentDim} bold>Actions</Text>
+          <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
+          <Box><Text color={COLORS.accent}>  1  Open {background.dashboard} in browser</Text></Box>
+          <Box><Text color={COLORS.text}>  2  Launch standalone dashboard</Text></Box>
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Text color={COLORS.warning}>No running control plane detected.</Text>
-          <Box marginTop={1}>
-            <Text color={COLORS.muted}>Start one with: memorix background start</Text>
+          <Box marginBottom={1}>
+            <Text color={COLORS.warning}>No running control plane</Text>
           </Box>
-          <Text color={COLORS.muted}>Or run standalone: memorix dashboard</Text>
+          <Text color={COLORS.accentDim} bold>Actions</Text>
+          <Text color={COLORS.border}>{'─'.repeat(50)}</Text>
+          <Box><Text color={COLORS.success}>  1  Start control plane  </Text><Text color={COLORS.muted}>(then open dashboard)</Text></Box>
+          <Box><Text color={COLORS.text}>  2  Launch standalone dashboard</Text></Box>
         </Box>
       )}
     </Box>

@@ -14,6 +14,7 @@ import { Sidebar } from './Sidebar.js';
 import { CommandBar } from './CommandBar.js';
 import {
   HomeView,
+  RecentView,
   SearchResultsView,
   DoctorView,
   ProjectView,
@@ -156,12 +157,19 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
           break;
         }
 
-        case 'recent': {
-          setView('home');
+        case 'recent':
+        case 'v': {
+          setView('recent');
           setLoading(true);
-          const recent = await getRecentMemories(10);
+          const recent = await getRecentMemories(12);
           setRecentMemories(recent);
           setLoading(false);
+          break;
+        }
+
+        case 'home':
+        case 'h': {
+          setView('home');
           break;
         }
 
@@ -244,9 +252,11 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         return <BackgroundView background={background} loading={loading} />;
       case 'dashboard':
         return <DashboardView background={background} />;
+      case 'recent':
+        return <RecentView recentMemories={recentMemories} loading={loading} />;
       case 'home':
       default:
-        return <HomeView recentMemories={recentMemories} project={project} loading={loading} />;
+        return <HomeView project={project} health={health} background={background} loading={loading} />;
     }
   };
 

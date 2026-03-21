@@ -16,15 +16,16 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/search',     description: 'Search memories',          alias: '/s' },
   { name: '/remember',   description: 'Store a quick memory',     alias: '/r' },
-  { name: '/recent',     description: 'Recent memories' },
-  { name: '/doctor',     description: 'Run diagnostics' },
-  { name: '/project',    description: 'Current project info',     alias: '/status' },
-  { name: '/background', description: 'Background service',       alias: '/bg' },
+  { name: '/recent',     description: 'Recent memory activity',   alias: '/v' },
+  { name: '/doctor',     description: 'Run diagnostics',          alias: '/d' },
+  { name: '/project',    description: 'Current project info',     alias: '/p' },
+  { name: '/background', description: 'Control plane service',    alias: '/bg' },
   { name: '/dashboard',  description: 'Open web dashboard',       alias: '/dash' },
+  { name: '/home',       description: 'Back to home',             alias: '/h' },
   { name: '/configure',  description: 'Settings',                 alias: '/config', interactive: true },
   { name: '/integrate',  description: 'Set up an IDE',            alias: '/setup', interactive: true },
   { name: '/cleanup',    description: 'Cleanup & purge',          interactive: true },
-  { name: '/ingest',     description: 'Git → Memory',             interactive: true },
+  { name: '/ingest',     description: 'Git -> Memory',            interactive: true },
   { name: '/help',       description: 'Show commands',            alias: '/?' },
   { name: '/exit',       description: 'Exit workbench',           alias: '/q' },
 ];
@@ -68,4 +69,4 @@ export const BOX = {
 } as const;
 
 // ── View Types ─────────────────────────────────────────────────
-export type ViewType = 'home' | 'search' | 'doctor' | 'project' | 'background' | 'dashboard';
+export type ViewType = 'home' | 'search' | 'doctor' | 'project' | 'background' | 'dashboard' | 'recent';

@@ -18,11 +18,14 @@ interface SidebarProps {
 const ACTIONS = [
   { key: 's', label: 'Search memory',   cmd: '/search' },
   { key: 'r', label: 'Remember',        cmd: '/remember' },
+  { key: 'v', label: 'Recent activity', cmd: '/recent' },
   { key: 'd', label: 'Doctor',          cmd: '/doctor' },
   { key: 'b', label: 'Background',      cmd: '/background' },
   { key: 'w', label: 'Dashboard',       cmd: '/dashboard' },
+  { key: 'p', label: 'Project info',    cmd: '/project' },
   { key: 'c', label: 'Configure',       cmd: '/configure' },
   { key: 'i', label: 'Integrate IDE',   cmd: '/integrate' },
+  { key: 'h', label: 'Home',            cmd: '/home' },
 ];
 
 export function Sidebar({ health, background, activeView }: SidebarProps): React.ReactElement {
