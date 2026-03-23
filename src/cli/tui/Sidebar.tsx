@@ -13,6 +13,8 @@ interface SidebarProps {
   background: BackgroundInfo;
   onAction: (cmd: string) => void;
   activeView: ViewType;
+  /** When true, Sidebar captures shortcut keys and drives navigation. */
+  isFocused?: boolean;
 }
 
 const ACTIONS = [
@@ -44,7 +46,24 @@ function truncate(text: string, max = 16): string {
   return `${text.slice(0, max)}...`;
 }
 
-export function Sidebar({ health, background, onAction, activeView }: SidebarProps): React.ReactElement {
+// Build a key→cmd lookup from ACTIONS for O(1) dispatch
+const KEY_TO_CMD: Record<string, string> = {};
+for (const a of ACTIONS) KEY_TO_CMD[a.key] = a.cmd;
+
+export function Sidebar({ health, background, onAction, activeView, isFocused = false }: SidebarProps): React.ReactElement {
+  // ── Interactive navigation: Sidebar owns shortcut key dispatch ──
+  useInput((ch, key) => {
+    // Esc: return home from any secondary view
+    if (key.escape && activeView !== 'home') {
+      onAction('/home');
+      return;
+    }
+    const cmd = KEY_TO_CMD[ch];
+    if (cmd) {
+      onAction(cmd);
+    }
+  }, { isActive: isFocused });
+
   // Map view types to sidebar action commands for highlight
   const activeCmd = ACTIONS.find(a => {
     const viewMap: Record<string, string> = {

@@ -25,6 +25,8 @@ import {
   IntegrateView,
   StatusMessage,
 } from './Panels.js';
+import { ConfigureView } from './ConfigureView.js';
+import { NAV_KEY_MAP, ACTION_VIEWS, ESC_RETURNABLE_VIEWS, resolveGlobalNav } from './useNavigation.js';
 import type {
   ProjectInfo,
   HealthInfo,
@@ -77,23 +79,11 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [mode, setMode] = useState('CLI');
   const [actionStatus, setActionStatus] = useState('');
-  const canEscReturnHome =
-    view === 'recent' ||
-    view === 'doctor' ||
-    view === 'project' ||
-    view === 'cleanup' ||
-    view === 'ingest' ||
-    view === 'background' ||
-    view === 'dashboard' ||
-    view === 'integrate';
-
-  // Views that handle their own number/letter keys
-  const isActionView =
-    view === 'cleanup' ||
-    view === 'ingest' ||
-    view === 'background' ||
-    view === 'dashboard' ||
-    view === 'integrate';
+  // Derived from centralized navigation model
+  const isActionView = ACTION_VIEWS.has(view);
+  const canEscReturnHome = ESC_RETURNABLE_VIEWS.has(view);
+  // Track whether CommandBar is actively receiving text input
+  const [inputFocused, setInputFocused] = useState(false);
 
   const getProjectRoot = useCallback(async (): Promise<string | null> => {
     const detected = project?.rootPath;
@@ -113,33 +103,36 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
     setHealth(h);
   }, [project]);
 
-  // View-specific key dispatch: intercept 1-4, h, w on action views
+  // ── Unified 3-layer key dispatch ──────────────────────────────
+  // Layer 1: Action view local keys (highest priority)
+  // Layer 2: CommandBar input mode (captures printable chars)
+  // Layer 3: Global nav keys (lowest, only when idle)
   useInput((ch, key) => {
+    // Esc: return home from any secondary view
     if (key.escape && canEscReturnHome) {
       handleCommand('/home');
       return;
     }
 
-    if (!isActionView) return;
-    if (view === 'cleanup' && (ch === '1' || ch === '2' || ch === '3')) {
-      handleCleanupAction(ch);
-    } else if (view === 'ingest' && (ch === '1' || ch === '2' || ch === '3' || ch === '4')) {
-      handleIngestAction(ch);
-    } else if (view === 'integrate' && /^[1-9]$/.test(ch)) {
-      handleIntegrateAction(ch);
-    } else if ((view === 'cleanup' || view === 'ingest') && ch === 'h') {
-      handleCommand('/home');
-    } else if (view === 'integrate' && ch === 'h') {
-      handleCommand('/home');
-    } else if ((view === 'background' || view === 'dashboard') && ch === 'h') {
-      handleCommand('/home');
-    } else if (view === 'background' && (ch === '1' || ch === '2' || ch === '3')) {
-      handleBackgroundAction(ch);
-    } else if (view === 'background' && ch === 'w' && background.dashboard) {
-      handleBackgroundAction('w');
-    } else if (view === 'dashboard' && (ch === '1' || ch === '2')) {
-      handleDashboardAction(ch);
+    // Layer 1: Action view local keys
+    if (isActionView) {
+      if (view === 'cleanup' && /^[1-3]$/.test(ch)) { handleCleanupAction(ch); return; }
+      if (view === 'ingest' && /^[1-4]$/.test(ch)) { handleIngestAction(ch); return; }
+      if (view === 'integrate' && /^[1-9]$/.test(ch)) { handleIntegrateAction(ch); return; }
+      if (view === 'background' && /^[1-3]$/.test(ch)) { handleBackgroundAction(ch); return; }
+      if (view === 'background' && ch === 'w' && background.dashboard) { handleBackgroundAction('w'); return; }
+      if (view === 'dashboard' && /^[1-2]$/.test(ch)) { handleDashboardAction(ch); return; }
+      // 'h' in action views = home
+      if (ch === 'h') { handleCommand('/home'); return; }
+      // Configure view handles its own keys internally via useInput
+      return;
     }
+
+    // Layer 2: CommandBar has input — don't intercept printable chars
+    if (inputFocused) return;
+
+    // Layer 3: Global navigation keys — handled by Sidebar via useInput
+    // Sidebar owns shortcut key → onAction dispatch when isFocused=true
   });
 
   // ── Initial data load ──────────────────────────────────────
@@ -182,17 +175,6 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
       const parts = raw.slice(1).split(/\s+/);
       const cmd = parts[0]?.toLowerCase() || '';
       const arg = parts.slice(1).join(' ');
-
-      // Find command definition
-      const cmdDef = SLASH_COMMANDS.find(c =>
-        c.name === `/${cmd}` || c.alias === `/${cmd}`
-      );
-
-      // Interactive commands → exit Ink, run @clack/prompts, re-enter
-      if (cmdDef?.interactive) {
-        onExitForInteractive(`/${cmd}`);
-        return;
-      }
 
       switch (cmd) {
         case 'search':
@@ -301,6 +283,12 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
         case 'setup': {
           setView('integrate');
           setActionStatus('');
+          break;
+        }
+
+        case 'configure':
+        case 'config': {
+          setView('configure');
           break;
         }
 
@@ -711,6 +699,8 @@ fi
         return <IngestView onAction={handleIngestAction} statusText={actionStatus} />;
       case 'integrate':
         return <IntegrateView statusText={actionStatus} />;
+      case 'configure':
+        return <ConfigureView onBack={() => handleCommand('/home')} />;
       case 'home':
       default:
         return <HomeView project={project} health={health} background={background} loading={loading} />;
@@ -757,6 +747,7 @@ fi
             background={background}
             onAction={handleCommand}
             activeView={view}
+            isFocused={!isActionView && !inputFocused}
           />
         ) : !veryNarrow ? (
           <Box flexDirection="column" width={20} borderStyle="single" borderColor={COLORS.border} paddingX={1}>
@@ -764,8 +755,10 @@ fi
             <Box><Text color={COLORS.muted}>Mem </Text><Text color={COLORS.text}>{health.activeMemories}</Text></Box>
             <Box><Text color={COLORS.muted}>Emb </Text><Text color={health.embeddingProvider === 'ready' ? COLORS.success : COLORS.muted}>{health.embeddingLabel}</Text></Box>
             <Box><Text color={COLORS.muted}>Bg  </Text><Text color={background.healthy ? COLORS.success : COLORS.muted}>{background.healthy ? 'Up' : 'Down'}</Text></Box>
+            <Box marginTop={1}><Text color={COLORS.textDim}>h=home /=cmd</Text></Box>
           </Box>
         ) : null}
+        {/* Very narrow (<60): inline minimal status hint above command bar */}
       </Box>
 
       {/* Status message */}
@@ -781,20 +774,16 @@ fi
           onSubmit={handleCommand}
           onExit={() => exit()}
           disabled={isActionView}
+          onFocusChange={setInputFocused}
           disabledHint={
-            view === 'cleanup'
-              ? 'cleanup: press 1/2/3, h or Esc for home'
-              : view === 'ingest'
-                ? 'git > memory: press 1/2/3/4, h or Esc for home'
-                : view === 'integrate'
-                  ? 'integrate: press 1-9, h or Esc for home'
-                : view === 'background'
-                  ? background.running
-                    ? 'background: press w/1/2/3, h or Esc for home'
-                    : 'background: press 1/2, h or Esc for home'
-                  : view === 'dashboard'
-                    ? 'dashboard: press 1/2, h or Esc for home'
-                    : 'action view active'
+            view === 'cleanup' ? 'cleanup: 1/2/3, h or Esc'
+            : view === 'ingest' ? 'ingest: 1/2/3/4, h or Esc'
+            : view === 'integrate' ? 'integrate: 1-9, h or Esc'
+            : view === 'configure' ? 'configure: Up/Down/Enter, Esc to back'
+            : view === 'background'
+              ? background.running ? 'background: w/1/2/3, h or Esc' : 'background: 1/2, h or Esc'
+            : view === 'dashboard' ? 'dashboard: 1/2, h or Esc'
+            : 'action view active'
           }
         />
       </Box>

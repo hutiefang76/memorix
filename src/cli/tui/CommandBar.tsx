@@ -2,7 +2,7 @@
  * Bottom input bar with slash-command palette.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { COLORS, SLASH_COMMANDS } from './theme.js';
 import type { SlashCommand } from './theme.js';
@@ -12,6 +12,7 @@ interface CommandBarProps {
   onExit: () => void;
   disabled?: boolean;
   disabledHint?: string;
+  onFocusChange?: (focused: boolean) => void;
 }
 
 export function CommandBar({
@@ -19,10 +20,15 @@ export function CommandBar({
   onExit,
   disabled = false,
   disabledHint = 'Action view active',
+  onFocusChange,
 }: CommandBarProps): React.ReactElement {
   const [input, setInput] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
   const [paletteIndex, setPaletteIndex] = useState(0);
+
+  // Notify parent about input focus state for keyboard priority model
+  const hasFocus = !disabled && input.length > 0;
+  useEffect(() => { onFocusChange?.(hasFocus); }, [hasFocus, onFocusChange]);
 
   const showPalette = !disabled && input.startsWith('/') && !input.includes(' ');
   const filteredCommands: SlashCommand[] = showPalette

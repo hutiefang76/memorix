@@ -31,36 +31,61 @@ interface HomeViewProps {
 }
 
 export function HomeView({ project, health, background }: HomeViewProps): React.ReactElement {
+  // ── No-project empty state: guidance only, no misleading status ──
+  if (!project) {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color={COLORS.warning} bold>No project detected</Text>
+          <Text color={COLORS.border}>{separator()}</Text>
+          <Text color={COLORS.muted}>Memorix works best inside a git repository.</Text>
+          <Text color={COLORS.muted}>Navigate to your project directory and re-launch, or:</Text>
+        </Box>
+
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color={COLORS.accentDim} bold>Getting Started</Text>
+          <Text color={COLORS.border}>{separator()}</Text>
+          <Text color={COLORS.textDim}>  git init          Initialize a git repo in this directory</Text>
+          <Text color={COLORS.textDim}>  c  /configure     Set up LLM + embedding providers</Text>
+          <Text color={COLORS.textDim}>  d  /doctor        Run diagnostics</Text>
+        </Box>
+
+        <Box flexDirection="column">
+          <Text color={COLORS.accentDim} bold>Global Services</Text>
+          <Text color={COLORS.border}>{separator()}</Text>
+          <Box>
+            <Text color={COLORS.muted}>{'Background'.padEnd(12)}</Text>
+            <Text color={background.healthy ? COLORS.success : background.running ? COLORS.warning : COLORS.muted}>
+              {background.healthy ? 'Running' : background.running ? 'Unhealthy' : 'Stopped'}
+            </Text>
+            {background.port && <Text color={COLORS.textDim}> :{background.port}</Text>}
+          </Box>
+          <Text color={COLORS.textDim}>  b  /background    Manage control plane</Text>
+        </Box>
+      </Box>
+    );
+  }
+
+  // ── Project detected: full status view ──
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="column" marginBottom={1}>
         <Text color={COLORS.accentDim} bold>Project</Text>
         <Text color={COLORS.border}>{separator()}</Text>
-        {project ? (
-          <Box flexDirection="column">
-            <Box>
-              <Text color={COLORS.muted}>{'Name'.padEnd(10)}</Text>
-              <Text color={COLORS.text}>{project.name}</Text>
-            </Box>
-            <Box>
-              <Text color={COLORS.muted}>{'Root'.padEnd(10)}</Text>
-              <Text color={COLORS.textDim}>{project.rootPath}</Text>
-            </Box>
-            <Box>
-              <Text color={COLORS.muted}>{'Remote'.padEnd(10)}</Text>
-              <Text color={COLORS.textDim}>{project.gitRemote}</Text>
-            </Box>
+        <Box flexDirection="column">
+          <Box>
+            <Text color={COLORS.muted}>{'Name'.padEnd(10)}</Text>
+            <Text color={COLORS.text}>{project.name}</Text>
           </Box>
-        ) : (
-          <Box flexDirection="column">
-            <Text color={COLORS.warning}>No project detected.</Text>
-            <Text color={COLORS.muted}>Get started:</Text>
-            <Text color={COLORS.textDim}>  git init          Initialize a git repo</Text>
-            <Text color={COLORS.textDim}>  /configure         Set up LLM + embedding</Text>
-            <Text color={COLORS.textDim}>  /integrate         Connect your IDE</Text>
-            <Text color={COLORS.textDim}>  /doctor            Run diagnostics</Text>
+          <Box>
+            <Text color={COLORS.muted}>{'Root'.padEnd(10)}</Text>
+            <Text color={COLORS.textDim}>{project.rootPath}</Text>
           </Box>
-        )}
+          <Box>
+            <Text color={COLORS.muted}>{'Remote'.padEnd(10)}</Text>
+            <Text color={COLORS.textDim}>{project.gitRemote}</Text>
+          </Box>
+        </Box>
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
@@ -151,7 +176,10 @@ export function RecentView({ recentMemories, loading }: RecentViewProps): React.
         ))
       )}
       {filtered.length < recentMemories.length && (
-        <Text color={COLORS.textDim}>({recentMemories.length - filtered.length} dev/noise entries hidden)</Text>
+        <Text color={COLORS.textDim}>({recentMemories.length - filtered.length} dev/noise entries hidden — revert/TUI-fix commits filtered)</Text>
+      )}
+      {!loading && filtered.length > 0 && (
+        <Box marginTop={1}><Text color={COLORS.muted}>Try: /search {'<'}query{'>'} | /doctor | /home</Text></Box>
       )}
     </Box>
   );
