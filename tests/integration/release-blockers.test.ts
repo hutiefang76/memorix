@@ -81,13 +81,16 @@ describe('B2: loadYamlConfig(null) skips global fallback', () => {
 describe('B3: compactDetail project-scoped lookup', () => {
   let testDir: string;
 
+  // Windows CI on Node 22 can take several seconds to initialize the
+  // isolated observations store for this suite. Keep the timeout local
+  // to B3 instead of inflating the whole file.
   beforeEach(async () => {
     testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'memorix-b3-'));
     await resetDb();
     await initObservations(testDir);
-  });
+  }, 15_000);
 
-  it('should return observation when projectId matches', async () => {
+  it('should return observation when projectId matches', { timeout: 15_000 }, async () => {
     const { observation } = await storeObservation({
       entityName: 'auth',
       type: 'decision',
@@ -101,7 +104,7 @@ describe('B3: compactDetail project-scoped lookup', () => {
     expect(result.documents[0].projectId).toBe('project-alpha');
   });
 
-  it('should NOT return observation when projectId mismatches', async () => {
+  it('should NOT return observation when projectId mismatches', { timeout: 15_000 }, async () => {
     const { observation } = await storeObservation({
       entityName: 'auth',
       type: 'decision',
@@ -114,7 +117,7 @@ describe('B3: compactDetail project-scoped lookup', () => {
     expect(result.documents).toHaveLength(0);
   });
 
-  it('bare numeric IDs without projectId should still work (backward compat)', async () => {
+  it('bare numeric IDs without projectId should still work (backward compat)', { timeout: 15_000 }, async () => {
     const { observation } = await storeObservation({
       entityName: 'auth',
       type: 'decision',
