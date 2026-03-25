@@ -1,5 +1,6 @@
 /**
- * Memorix - Cross-Agent Memory Layer plugin for OpenCode
+ * Memorix - Cross-Agent Memory Bridge Plugin for OpenCode
+ * @generated-version 2
  *
  * Automatically captures session context and tool usage,
  * piping events to `memorix hook` for cross-agent memory persistence.
@@ -76,7 +77,7 @@ export const MemorixPlugin = async ({ project, client, $, directory, worktree })
       output.context.push(
         '## Memorix Cross-Agent Memory\n' +
         'Before compacting, use memorix_store to save important discoveries, decisions, and gotchas.\n' +
-        'After compacting, use memorix_search to reload relevant context.'
+        'After compacting, use memorix_session_start to reload session context, then memorix_search for specific topics.'
       );
     },
   };
