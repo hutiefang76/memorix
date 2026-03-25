@@ -1102,6 +1102,10 @@ export default defineCommand({
       console.error(`[memorix] Team API:   http://127.0.0.1:${port}/api/team`);
       console.error(`[memorix] Sessions at startup: ${sessions.size} (live count available at /api/team)`);
       console.error(`[memorix] Agents can connect via: { "transport": "http", "url": "http://localhost:${port}/mcp" }`);
+
+      // Fire-and-forget: silent auto-update check after server is fully started.
+      // All output goes to stderr only. Failures never affect the server.
+      import('../update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
     });
 
     // Session timeout GC — close sessions idle for 30 minutes

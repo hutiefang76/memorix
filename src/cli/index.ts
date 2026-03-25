@@ -857,6 +857,8 @@ const main = defineCommand({
 
     // No subcommand provided — show fullscreen workbench if in TTY, otherwise show help
     if (process.stdout.isTTY && process.stdin.isTTY) {
+      // Fire-and-forget: silent auto-update check. stderr only, never blocks TUI.
+      import('./update-checker.js').then(m => m.checkForUpdates()).catch(() => {});
       const { startWorkbench } = await import('./workbench.js');
       await startWorkbench();
     } else {

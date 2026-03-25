@@ -320,6 +320,37 @@ export default defineCommand({
       report.llm = { enabled: false };
     }
 
+    // ── 7. Auto-Update Status ──────────────────────────────────
+    lines.push('');
+    lines.push('┌─ Auto-Update ─────────────────────────────────────');
+
+    try {
+      const { readCache, getCurrentVersion } = await import('../update-checker.js');
+      const cache = await readCache();
+      const curVer = getCurrentVersion();
+      lines.push(info(`Current version: v${curVer}`));
+      if (cache) {
+        lines.push(info(`Latest known: v${cache.latestVersion}`));
+        const lastCheckAgo = cache.lastCheck ? `${Math.round((Date.now() - cache.lastCheck) / 3600000)}h ago` : 'never';
+        lines.push(info(`Last check: ${lastCheckAgo}`));
+        if (cache.lastAutoUpdateStatus === 'success') {
+          lines.push(ok(`Last auto-update: v${cache.updatedFrom} → v${cache.updatedTo} (restart to apply)`));
+        } else if (cache.lastAutoUpdateStatus === 'failed') {
+          lines.push(warn(`Last auto-update failed: ${cache.lastAutoUpdateError ?? 'unknown error'}`));
+        }
+      } else {
+        lines.push(info('No update checks recorded yet'));
+      }
+      const autoEnabled = !['off', 'false', '0', 'notify'].includes(
+        (process.env.MEMORIX_AUTO_UPDATE ?? '').toLowerCase().trim(),
+      );
+      lines.push(info(`Auto-update: ${autoEnabled ? 'enabled (install)' : 'disabled'}`));
+      report.autoUpdate = { enabled: autoEnabled, currentVersion: curVer, cache };
+    } catch {
+      lines.push(info('Auto-update status unavailable'));
+      report.autoUpdate = { enabled: false };
+    }
+
     // ── Summary ──────────────────────────────────────────────────
     lines.push('');
     lines.push('┌─ Summary ─────────────────────────────────────────');
