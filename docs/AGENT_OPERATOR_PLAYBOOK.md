@@ -19,7 +19,7 @@ It is designed for software work, not generic chat memory. Its core value is tha
 It supports:
 
 - stdio MCP (`memorix serve`)
-- HTTP control plane + dashboard (`memorix serve-http --port 3211`)
+- HTTP control plane + dashboard (`memorix background start` or `memorix serve-http --port 3211`)
 - local-first project-scoped memory
 - cross-agent recall across Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae
 
@@ -50,11 +50,12 @@ Do not assume a plain folder path is enough.
 
 ### Choose one runtime model intentionally
 
-There are three practical operator entry points:
+There are four practical operator entry points:
 
 - `memorix` for the interactive local workbench in a TTY
 - `memorix serve` for stdio MCP hosts
-- `memorix serve-http --port 3211` for the HTTP control plane
+- `memorix background start` for the recommended long-lived HTTP control plane
+- `memorix serve-http --port 3211` for foreground HTTP control-plane work
 
 The two server runtime modes are:
 
@@ -66,10 +67,10 @@ memorix serve
 
 when the MCP host launches Memorix directly from the current workspace and stdio transport is enough.
 
-Use:
+Prefer:
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
 
 when the user wants:
@@ -79,6 +80,14 @@ when the user wants:
 - multiple agents or sessions
 - team/task/message features
 - one shared control-plane process
+
+Use:
+
+```bash
+memorix serve-http --port 3211
+```
+
+when the user wants the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
 
 ### In HTTP mode, always bind the project explicitly
 
@@ -200,13 +209,21 @@ git init
 ### Step 3. Start HTTP control plane
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
 
 Main URLs:
 
 - MCP endpoint: `http://localhost:3211/mcp`
 - dashboard: `http://localhost:3211`
+
+Companion commands:
+
+```bash
+memorix background status
+memorix background logs
+memorix background stop
+```
 
 At startup, `serve-http` seeds its default project root from:
 
@@ -264,7 +281,7 @@ Choose:
 
 Choose:
 
-- `memorix serve-http --port 3211`
+- `memorix background start`
 - explicit `memorix_session_start(projectRoot=...)`
 
 ### If the user asks for IDE integration files
@@ -388,6 +405,7 @@ In stdio / project-bound mode:
 
 ```bash
 memorix serve
+memorix background start
 memorix serve-http --port 3211
 memorix doctor
 memorix status
@@ -431,7 +449,7 @@ git init
 ### 2. Is the runtime mode correct?
 
 - stdio MCP client -> `memorix serve`
-- HTTP/dashboard/control-plane use case -> `memorix serve-http --port 3211`
+- HTTP/dashboard/control-plane use case -> `memorix background start` by default, or `memorix serve-http --port 3211` when foreground control is required
 
 ### 3. Is the MCP config pointing to the right command?
 

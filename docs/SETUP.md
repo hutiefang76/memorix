@@ -2,18 +2,19 @@
 
 Memorix is an open-source cross-agent memory layer for coding agents via MCP, with first-class integrations for Cursor, Claude Code, Codex, Windsurf, Gemini CLI, GitHub Copilot, Kiro, OpenCode, Antigravity, and Trae.
 
-Memorix has three common operator entry points:
+Memorix has four common operator entry points:
 
 - `memorix` for the interactive local workbench in a TTY
 - `memorix serve` for stdio MCP integrations
-- `memorix serve-http --port 3211` for HTTP MCP, the dashboard, and collaboration features on one port
+- `memorix background start` for the recommended long-lived HTTP control plane
+- `memorix serve-http --port 3211` for foreground HTTP MCP, debugging, and manual supervision
 
 The two server runtime modes are:
 
 - `memorix serve` for stdio MCP integrations
-- `memorix serve-http --port 3211` for HTTP MCP, the dashboard, and collaboration features on one port
+- `memorix background start` or `memorix serve-http --port 3211` for HTTP MCP, the dashboard, and collaboration features
 
-For the smoothest multi-project setup, use `memorix serve-http --port 3211` as the main control plane. Use `memorix serve` when an IDE specifically wants a stdio MCP server process.
+For the smoothest multi-project setup, use `memorix background start` as the main control plane. Use `memorix serve` when an IDE specifically wants a stdio MCP server process.
 
 ---
 
@@ -58,7 +59,7 @@ Use this when your IDE launches Memorix as a local stdio MCP server.
 ### Option B: HTTP MCP + Dashboard
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
 
 This mode gives you:
@@ -68,11 +69,21 @@ This mode gives you:
 - Team and collaboration features
 - a single long-lived Memorix process shared by multiple agents
 
+Companion commands:
+
+```bash
+memorix background status
+memorix background logs
+memorix background stop
+```
+
 Startup note:
 
 - `serve-http` seeds its default project root from `--cwd` -> `MEMORIX_PROJECT_ROOT` -> `~/.memorix/last-project-root` -> `process.cwd()`
 - this helps the dashboard and control plane start in a sensible project even before any agent binds explicitly
 - in multi-session workflows, agents should still call `memorix_session_start(projectRoot=...)` to avoid cross-project drift
+
+Use `memorix serve-http --port 3211` when you want the same HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
 
 Important for multi-project usage:
 
@@ -261,7 +272,7 @@ Recommended dashboard entry:
 
 - `http://localhost:3211`
 
-This is the dashboard served by `memorix serve-http` and is the main control plane.
+This is the dashboard served by the HTTP control plane. In normal use, start it with `memorix background start`; use `memorix serve-http` when you want the same service in the foreground.
 
 It includes:
 
@@ -284,7 +295,7 @@ There is also a standalone `memorix dashboard` command, but it is best treated a
 Team features require HTTP transport:
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
 
 These features include:
@@ -314,7 +325,7 @@ memorix serve
 npm install -g memorix
 memorix init
 memorix git-hook --force
-memorix serve-http --port 3211
+memorix background start
 ```
 
 Then:
@@ -366,15 +377,21 @@ Memorix identifies projects from Git. If an IDE launches from a system directory
 
 ### Dashboard Team page says HTTP transport is required
 
-That means you are using the standalone dashboard, not `serve-http`.
+That means you are using the standalone dashboard, not the HTTP control plane.
 
 Use:
+
+```bash
+memorix background start
+```
+
+or, if you want it in the foreground:
 
 ```bash
 memorix serve-http --port 3211
 ```
 
-and open:
+Then open:
 
 - `http://localhost:3211`
 

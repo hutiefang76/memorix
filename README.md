@@ -116,7 +116,15 @@ Use `serve` for normal stdio MCP integrations.
 memorix serve-http --port 3211
 ```
 
-Use `serve-http` when you want the HTTP transport, collaboration features, and the dashboard on the same port.
+Use `serve-http` when you want the HTTP control plane in the foreground for debugging, manual supervision, or a custom port.
+
+For the normal long-lived HTTP path, prefer:
+
+```bash
+memorix background start
+```
+
+Use `background start` when you want the HTTP transport, collaboration features, and the dashboard without babysitting a foreground terminal.
 
 At startup, `serve-http` seeds its default project root from:
 
@@ -200,7 +208,7 @@ Git memories are stored with `source='git'`, commit hashes, changed files, and n
 ### 3. Run the control plane
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
 
 Then open:
@@ -208,7 +216,21 @@ Then open:
 - MCP HTTP endpoint: `http://localhost:3211/mcp`
 - Dashboard: `http://localhost:3211`
 
-This mode gives you collaboration tools, project identity diagnostics, config provenance, Git Memory views, and the dashboard in one place.
+Companion commands:
+
+```bash
+memorix background status
+memorix background logs
+memorix background stop
+```
+
+Use `background start` as the default long-lived HTTP mode. If you need to keep the control plane in the foreground for debugging or manual supervision, use:
+
+```bash
+memorix serve-http --port 3211
+```
+
+This HTTP mode gives you collaboration tools, project identity diagnostics, config provenance, Git Memory views, and the dashboard in one place.
 
 When multiple HTTP sessions are open at once, each session should bind itself with `memorix_session_start(projectRoot=...)` before using project-scoped memory tools.
 
@@ -349,6 +371,7 @@ Key local commands:
 ```bash
 memorix status
 memorix dashboard
+memorix background start
 memorix serve-http --port 3211
 memorix git-hook --force
 ```

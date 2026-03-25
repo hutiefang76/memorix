@@ -116,9 +116,17 @@ memorix serve
 memorix serve-http --port 3211
 ```
 
-`serve-http` 适合你需要 HTTP transport、dashboard、协作和控制面的场景。
+`serve-http` 适合你想把 HTTP control plane 放在前台运行、做调试、手动观察日志或使用自定义端口的场景。
 
-`serve-http` 启动时会按下面的顺序为默认项目根做初始选取：
+如果你想要正常的长期 HTTP 运行方式，优先使用：
+
+```bash
+memorix background start
+```
+
+`background start` 会把同一个 HTTP control plane 放到后台，适合日常使用 dashboard、协作能力和 HTTP MCP，而不用一直守着前台终端。
+
+`serve-http` 启动时会按下面的顺序为默认项目根做初始选择：
 
 1. `--cwd`
 2. `MEMORIX_PROJECT_ROOT`
@@ -162,7 +170,7 @@ args = ["serve"]
 ```
 </details>
 
-完整的 IDE 配置矩阵、Windows 注意事项和排障说明见 [docs/SETUP.md](docs/SETUP.md)。
+完整 IDE 配置矩阵、Windows 注意事项和排障说明见 [docs/SETUP.md](docs/SETUP.md)。
 
 ---
 
@@ -200,13 +208,27 @@ Git Memory 会保留 `source='git'`、提交哈希、文件变化和噪音过滤
 ### 3. 运行控制面与 Dashboard
 
 ```bash
-memorix serve-http --port 3211
+memorix background start
 ```
 
 然后访问：
 
 - MCP HTTP 端点：`http://localhost:3211/mcp`
 - Dashboard：`http://localhost:3211`
+
+配套命令：
+
+```bash
+memorix background status
+memorix background logs
+memorix background stop
+```
+
+如果你需要把控制面放在前台做调试或手动观察，也可以使用：
+
+```bash
+memorix serve-http --port 3211
+```
 
 这一模式会把 dashboard、配置诊断、项目身份、团队协作和 Git Memory 视图统一到一个控制面入口里。
 
@@ -277,98 +299,30 @@ flowchart LR
 
     D1 --> E1
     D2 --> E1
+    D2 --> E2
     D3 --> E2
-    D4 --> E3
-    C4 --> E3
+    D3 --> E3
+    D4 --> E1
 ```
 
-Memorix 不是一条单线 pipeline。它有多种写入入口、多层记忆基底、多条异步处理支路，以及不同的检索和协作消费面。
+Memorix 不是一条单线的“写入 -> 处理 -> 查询”管线。它更像是一个 fan-in / fan-out 的记忆系统：
 
-### 三层记忆模型
+- 多个入口同时写入
+- 一套运行时和多种记忆基底
+- 发生在后台的异步处理支路
+- 向搜索、dashboard、team、会话交接同时提供消费面
 
-- **Observation Memory**：记录 `what-changed`、`how-it-works`、`gotcha`、`problem-solution` 等工程知识。
-- **Reasoning Memory**：记录为什么这样做、比较过哪些方案、接受了什么权衡。
-- **Git Memory**：从 commit 中提炼的工程真相层。
-
-### 检索模型
-
-- 默认搜索是 **当前项目隔离**
-- `scope="global"` 才会跨项目检索
-- 全局结果可以通过带 `projectId` 的 refs 精确打开详情
-- source-aware retrieval 会根据问题类型动态提升 Git 或 reasoning memory 的权重
+这就是为什么它能同时支持 Git Truth、Reasoning Memory、Cross-Agent Recall 和 Control Plane 协作，而不是只做一个单点记忆工具。
 
 ---
 
 ## 文档导航
 
-### 上手与配置
-
-- [Setup Guide](docs/SETUP.md)
-- [Configuration Guide](docs/CONFIGURATION.md)
-
-### 产品与架构
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Memory Formation Pipeline](docs/MEMORY_FORMATION_PIPELINE.md)
-- [Design Decisions](docs/DESIGN_DECISIONS.md)
-
-### 参考资料
-
-- [API Reference](docs/API_REFERENCE.md)
-- [Git Memory Guide](docs/GIT_MEMORY.md)
-- [Modules](docs/MODULES.md)
-
-### 开发
-
-- [Development Guide](docs/DEVELOPMENT.md)
-- [Known Issues and Roadmap](docs/KNOWN_ISSUES_AND_ROADMAP.md)
-
-### 面向 AI 的项目文档
-
-- [Agent Operator Playbook](docs/AGENT_OPERATOR_PLAYBOOK.md)
+- [安装与接入说明](docs/SETUP.md)
+- [配置模型](docs/CONFIGURATION.md)
+- [Git Memory 指南](docs/GIT_MEMORY.md)
+- [架构设计](docs/ARCHITECTURE.md)
+- [Agent 操作手册](docs/AGENT_OPERATOR_PLAYBOOK.md)
 - [AI Context Note](docs/AI_CONTEXT.md)
-- [`llms.txt`](llms.txt)
-- [`llms-full.txt`](llms-full.txt)
-
----
-
-## 本地开发
-
-```bash
-git clone https://github.com/AVIDS2/memorix.git
-cd memorix
-npm install
-
-npm run dev
-npm test
-npm run build
-```
-
-常用本地命令：
-
-```bash
-memorix status
-memorix dashboard
-memorix serve-http --port 3211
-memorix git-hook --force
-```
-
----
-
-## 致谢
-
-Memorix 借鉴了 [mcp-memory-service](https://github.com/doobidoo/mcp-memory-service)、[MemCP](https://github.com/maydali28/memcp)、[claude-mem](https://github.com/anthropics/claude-code)、[Mem0](https://github.com/mem0ai/mem0) 以及更广泛 MCP 生态中的许多思路。
-
-## Star History
-
-<a href="https://star-history.com/#AVIDS2/memorix&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=AVIDS2/memorix&type=Date" width="600" />
- </picture>
-</a>
-
-## License
-
-[Apache 2.0](LICENSE)
+- [面向 AI 的项目索引（短版）](llms.txt)
+- [面向 AI 的项目索引（完整版）](llms-full.txt)
