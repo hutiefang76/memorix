@@ -309,13 +309,23 @@ export async function getSessionContext(
 
   if (projectSessions.length > 0) {
     const last = projectSessions[0];
-    lines.push('## Previous Session');
-    if (last.agent) {
-      lines.push(`Agent: ${last.agent}`);
+    // Recent Handoff: the most recent completed session with a real summary.
+    // If the latest session only ended implicitly, walk back to find one with substance.
+    let handoff = last;
+    for (const s of projectSessions) {
+      if (s.summary && s.summary !== '(session ended implicitly by new session start)') {
+        handoff = s;
+        break;
+      }
     }
-    lines.push(`Ended: ${last.endedAt || last.startedAt}`);
-    if (last.summary && last.summary !== '(session ended implicitly by new session start)') {
-      lines.push('', last.summary);
+    lines.push('## Recent Handoff');
+    lines.push('*Last session with a recorded summary — pick up where it left off.*');
+    if (handoff.agent) {
+      lines.push(`Agent: ${handoff.agent}`);
+    }
+    lines.push(`Ended: ${handoff.endedAt || handoff.startedAt}`);
+    if (handoff.summary && handoff.summary !== '(session ended implicitly by new session start)') {
+      lines.push('', handoff.summary);
     }
     lines.push('');
   }
@@ -333,7 +343,8 @@ export async function getSessionContext(
     .map(({ obs }) => obs);
 
   if (priorityObs.length > 0) {
-    lines.push('## Key Memories');
+    lines.push('## Key Project Memories');
+    lines.push('*Long-term important knowledge — ranked by type and relevance, not recency.*');
     for (const obs of priorityObs) {
       const emoji = TYPE_EMOJI[obs.type] ?? '📌';
       const fact = obs.facts?.[0] ? ` — ${obs.facts[0]}` : '';
@@ -343,12 +354,15 @@ export async function getSessionContext(
   }
 
   if (projectSessions.length > 1) {
-    lines.push(`## Session History (last ${projectSessions.length})`);
+    lines.push(`## Recent Session History (last ${projectSessions.length})`);
+    lines.push('*Chronological session log — for orientation, not action.*');
     for (const session of projectSessions) {
       const date = (session.endedAt || session.startedAt).slice(0, 10);
       const agent = session.agent ? ` [${session.agent}]` : '';
-      const summary = session.summary
-        ? ` — ${session.summary.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80)}`
+      const rawSummary = session.summary && session.summary !== '(session ended implicitly by new session start)'
+        ? session.summary : null;
+      const summary = rawSummary
+        ? ` — ${rawSummary.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80)}`
         : '';
       lines.push(`- ${date}${agent}${summary}`);
     }

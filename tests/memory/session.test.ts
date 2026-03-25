@@ -117,7 +117,7 @@ describe('Session Lifecycle', () => {
       // Get context for new session
       const context = await getSessionContext(testDir, PROJECT_ID);
 
-      expect(context).toContain('Previous Session');
+      expect(context).toContain('Recent Handoff');
       expect(context).toContain('Implement auth module');
       expect(context).toContain('JWT middleware');
     });
@@ -143,7 +143,7 @@ describe('Session Lifecycle', () => {
 
       const context = await getSessionContext(testDir, PROJECT_ID);
 
-      expect(context).toContain('Key Memories');
+      expect(context).toContain('Key Project Memories');
       expect(context).toContain('JWT tokens expire silently');
       expect(context).toContain('Use Docker for deployment');
     });
@@ -214,13 +214,84 @@ describe('Session Lifecycle', () => {
 
       const context = await getSessionContext(testDir, PROJECT_ID, 3);
 
-      expect(context).toContain('Session History');
+      expect(context).toContain('Recent Session History');
     });
 
     it('should return empty string for project with no sessions or observations', async () => {
       const context = await getSessionContext(testDir, 'empty-project');
 
       expect(context).toBe('');
+    });
+
+    it('Recent Handoff should walk back past implicit-end sessions to find a real summary', async () => {
+      // Session 1: has a real summary
+      await startSession(testDir, PROJECT_ID, { sessionId: 'real-summary', agent: 'cursor' });
+      await endSession(testDir, 'real-summary', '## Goal\nImplement caching layer');
+
+      // Session 2: implicitly ended (no explicit summary)
+      await startSession(testDir, PROJECT_ID, { sessionId: 'implicit-end' });
+      // Starting session 3 auto-closes session 2 with implicit summary
+      await startSession(testDir, PROJECT_ID, { sessionId: 'current' });
+
+      const context = await getSessionContext(testDir, PROJECT_ID);
+
+      // Recent Handoff should show session 1's real summary, not session 2's implicit end
+      expect(context).toContain('Recent Handoff');
+      expect(context).toContain('Implement caching layer');
+      expect(context).not.toContain('session ended implicitly');
+    });
+
+    it('Key Project Memories should contain old high-priority observations, not recent session data', async () => {
+      // Old but high-priority gotcha (30 days ago)
+      await storeObservation({
+        entityName: 'database',
+        type: 'gotcha',
+        title: 'PostgreSQL connection pool exhaustion under load',
+        narrative: 'Connection pool maxes out at 20 connections',
+        facts: ['Max connections: 20', 'Timeout: 30s'],
+        projectId: PROJECT_ID,
+      });
+
+      // Recent session
+      await startSession(testDir, PROJECT_ID, { sessionId: 'recent', agent: 'windsurf' });
+      await endSession(testDir, 'recent', '## Goal\nFix CSS layout');
+
+      const context = await getSessionContext(testDir, PROJECT_ID);
+
+      // Handoff section should have the recent session
+      expect(context).toContain('Recent Handoff');
+      expect(context).toContain('Fix CSS layout');
+
+      // Key Project Memories should have the old gotcha
+      expect(context).toContain('Key Project Memories');
+      expect(context).toContain('PostgreSQL connection pool exhaustion');
+
+      // Verify section order: Handoff comes before Key Project Memories
+      const handoffIdx = context.indexOf('Recent Handoff');
+      const memoriesIdx = context.indexOf('Key Project Memories');
+      expect(handoffIdx).toBeLessThan(memoriesIdx);
+    });
+
+    it('section subtitles clarify semantics', async () => {
+      await storeObservation({
+        entityName: 'api',
+        type: 'decision',
+        title: 'Use REST over GraphQL',
+        narrative: 'REST is simpler for this project',
+        projectId: PROJECT_ID,
+      });
+
+      await startSession(testDir, PROJECT_ID, { sessionId: 's1' });
+      await endSession(testDir, 's1', '## Goal\nSetup API');
+      await startSession(testDir, PROJECT_ID, { sessionId: 's2' });
+      await endSession(testDir, 's2', '## Goal\nAdd auth');
+
+      const context = await getSessionContext(testDir, PROJECT_ID);
+
+      // Each section has a clarifying subtitle
+      expect(context).toContain('pick up where it left off');
+      expect(context).toContain('ranked by type and relevance, not recency');
+      expect(context).toContain('for orientation, not action');
     });
   });
 
