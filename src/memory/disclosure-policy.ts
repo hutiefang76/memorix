@@ -15,6 +15,55 @@
 
 export type DisclosureLayer = 'L1' | 'L2' | 'L3';
 
+/**
+ * Evidence basis: how well-grounded a memory is in verifiable sources.
+ *
+ * Computed from existing fields — not stored separately.
+ *   'repository' — backed by git provenance, commit evidence, or repository evidence
+ *   'direct'     — explicitly agent-recorded, no git backing
+ *   undefined    — hook trace, legacy, or unknown origin → neutral
+ */
+export type EvidenceBasis = 'repository' | 'direct' | undefined;
+
+/**
+ * Derive the evidence basis from existing provenance fields.
+ * Conservative: only labels what can be clearly determined.
+ * Neutral (undefined) is preferred over incorrect labeling.
+ */
+export function resolveEvidenceBasis(fields: {
+  sourceDetail?: string;
+  source?: string;
+  commitHash?: string;
+  relatedCommits?: string[];
+}): EvidenceBasis {
+  // Repository-backed: any strong git/repository provenance signal.
+  if (
+    fields.commitHash ||
+    (fields.relatedCommits?.length ?? 0) > 0 ||
+    fields.source === 'git' ||
+    fields.sourceDetail === 'git-ingest'
+  ) {
+    return 'repository';
+  }
+  // Direct: explicitly agent-recorded, no git backing
+  if (fields.sourceDetail === 'explicit') return 'direct';
+  // Hook trace, manual, legacy, unknown → neutral
+  return undefined;
+}
+
+/**
+ * Return a compact one-line verification annotation for provenance headers.
+ * Returns empty string when basis is 'direct' or undefined (not shown to avoid noise).
+ * The commit hash is shown only in the detail path (commitHash present).
+ */
+export function evidenceBasisLine(basis: EvidenceBasis, commitHash?: string): string {
+  if (basis === 'repository') {
+    const commit = commitHash ? ` — commit ${commitHash.substring(0, 7)}` : '';
+    return `✓ Repository-backed${commit}`;
+  }
+  return '';
+}
+
 export interface ProvenanceFields {
   sourceDetail?: string;
   valueCategory?: string;
