@@ -294,5 +294,24 @@ describe('Retention & Decay', () => {
       expect(archived[0].id).toBe(0); // previously archived
       expect(archived[1].id).toBe(1); // newly archived
     });
+
+    it('should respect access-based immunity when accessMap is provided', async () => {
+      const now = new Date();
+      const expiredDate = new Date(now.getTime() - 200 * 24 * 60 * 60 * 1000).toISOString();
+
+      const observations = [
+        { id: 1, entityName: 'a', type: 'decision', title: 'Frequently accessed', narrative: '', facts: [], filesModified: [], concepts: [], tokens: 10, createdAt: expiredDate, projectId: 'test' },
+      ];
+
+      await fs.writeFile(path.join(tmpDir, 'observations.json'), JSON.stringify(observations));
+
+      const accessMap = new Map([
+        [1, { accessCount: 3, lastAccessedAt: '' }],
+      ]);
+
+      const result = await archiveExpired(tmpDir, now, accessMap);
+      expect(result.archived).toBe(0);
+      expect(result.remaining).toBe(1);
+    });
   });
 });

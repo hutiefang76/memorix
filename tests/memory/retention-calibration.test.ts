@@ -306,6 +306,13 @@ describe('explainRetention', () => {
     expect(exp.summary).not.toContain('valueCategory 1×');
   });
 
+  it('summary avoids markdown table pipe separators', () => {
+    const doc = makeDoc({ type: 'decision', sourceDetail: 'hook', valueCategory: 'ephemeral' });
+    const exp = explainRetention(doc);
+    expect(exp.summary).not.toContain(' | ');
+    expect(exp.summary).toContain(' ; ');
+  });
+
   it('ageDays is rounded to integer', () => {
     const doc = makeDoc({
       createdAt: new Date(Date.now() - 3.7 * 24 * 60 * 60 * 1000).toISOString(),

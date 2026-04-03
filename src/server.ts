@@ -1500,11 +1500,38 @@ export async function createMemorixServer(
     async (args: { action?: string }) => {
       const action = args.action ?? 'report';
       const { getRetentionSummary, getArchiveCandidates, rankByRelevance, archiveExpired, getRetentionZone, explainRetention } = await import('./memory/retention.js');
+      const { getDb } = await import('./store/orama-store.js');
       const { search } = await import('@orama/orama');
+
+      // Shared: build MemorixDocument[] from in-memory observations
+      const { getAllObservations } = await import('./memory/observations.js');
+      const allObs = getAllObservations();
+
+      // Pull current access metadata from the live Orama index so access-based
+      // immunity (e.g. accessCount >= 3) still works in retention/report/archive
+      // paths even though observations.json itself does not persist those fields.
+      const accessMap = new Map<number, { accessCount: number; lastAccessedAt: string }>();
+      try {
+        const database = await getDb();
+        const accessResults = await search(database, {
+          term: '',
+          limit: Math.max(1, allObs.length),
+        });
+        for (const hit of accessResults.hits) {
+          const doc = hit.document as import('./types.js').MemorixDocument;
+          accessMap.set(doc.observationId, {
+            accessCount: doc.accessCount ?? 0,
+            lastAccessedAt: doc.lastAccessedAt ?? '',
+          });
+        }
+      } catch {
+        // Best-effort: retention still works without access metadata, just with
+        // less precise immunity/reporting.
+      }
 
       // Handle archive action
       if (action === 'archive') {
-        const result = await archiveExpired(projectDir);
+        const result = await archiveExpired(projectDir, undefined, accessMap);
         if (result.archived === 0) {
           return {
             content: [{ type: 'text' as const, text: '✅ No expired observations to archive. All memories are within their retention period.' }],
@@ -1515,9 +1542,6 @@ export async function createMemorixServer(
         };
       }
 
-      // Shared: build MemorixDocument[] from in-memory observations
-      const { getAllObservations } = await import('./memory/observations.js');
-      const allObs = getAllObservations();
       const docs: import('./types.js').MemorixDocument[] = allObs.map(obs => ({
         id: `obs-${obs.id}`,
         observationId: obs.id,
@@ -1531,8 +1555,8 @@ export async function createMemorixServer(
         tokens: obs.tokens,
         createdAt: obs.createdAt,
         projectId: obs.projectId,
-        accessCount: 0,
-        lastAccessedAt: '',
+        accessCount: accessMap.get(obs.id)?.accessCount ?? 0,
+        lastAccessedAt: accessMap.get(obs.id)?.lastAccessedAt ?? '',
         status: obs.status ?? 'active',
         source: obs.source ?? 'agent',
         sourceDetail: obs.sourceDetail ?? '',

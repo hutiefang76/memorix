@@ -335,7 +335,9 @@ export function explainRetention(
     immune: immuneFlag,
     immunityReason,
     ageDays: Math.round(ageDays),
-    summary: parts.join(' | '),
+    // Summary is rendered inside markdown table cells in memorix_retention output,
+    // so avoid pipe separators that would split the row into extra columns.
+    summary: parts.join(' ; '),
   };
 }
 
