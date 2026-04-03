@@ -1491,14 +1491,15 @@ export async function createMemorixServer(
         'Show memory retention status or archive expired memories. ' +
         'action="report" (default): show active/stale/archive-candidate counts. ' +
         'action="archive": move expired observations to archive file (reversible). ' +
+        'action="stale": list stale observations with full retention explanation. ' +
         'Uses exponential decay scoring based on importance, age, and access patterns.',
       inputSchema: {
-        action: z.enum(['report', 'archive']).optional().describe('Action: "report" (show status, default) or "archive" (move expired to archive)'),
+        action: z.enum(['report', 'archive', 'stale']).optional().describe('Action: "report" (show status, default) or "archive" (move expired to archive) or "stale" (list stale observations with explanation)'),
       },
     },
     async (args: { action?: string }) => {
       const action = args.action ?? 'report';
-      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, archiveExpired } = await import('./memory/retention.js');
+      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, archiveExpired, getRetentionZone, explainRetention } = await import('./memory/retention.js');
       const { search } = await import('@orama/orama');
 
       // Handle archive action
@@ -1514,8 +1515,7 @@ export async function createMemorixServer(
         };
       }
 
-      // Report action (default) — use in-memory observations for reliable lookup
-      // (Orama search with empty term is unreliable)
+      // Shared: build MemorixDocument[] from in-memory observations
       const { getAllObservations } = await import('./memory/observations.js');
       const allObs = getAllObservations();
       const docs: import('./types.js').MemorixDocument[] = allObs.map(obs => ({
@@ -1545,11 +1545,47 @@ export async function createMemorixServer(
         };
       }
 
+      // ── action="stale": full table of stale observations with explanation ──
+      if (action === 'stale') {
+        const staleDocs = docs.filter(d => getRetentionZone(d) === 'stale');
+        if (staleDocs.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: '✅ No stale observations. All active memories are within 50% of their retention period.' }],
+          };
+        }
+        const staleLines: string[] = [
+          `## Stale Observations (${staleDocs.length})`,
+          '',
+          '| ID | Entity | Title | Age | Source | Retention | Why |',
+          '|----|--------|-------|-----|--------|-----------|-----|',
+        ];
+        for (const d of staleDocs) {
+          const exp = explainRetention(d);
+          const src = d.sourceDetail || '—';
+          const vc = d.valueCategory || '—';
+          staleLines.push(
+            `| ${d.observationId} | ${d.entityName} | ${d.title} | ${exp.ageDays}d | ${src} (${vc}) | ${exp.effectiveRetentionDays}d | ${exp.summary} |`,
+          );
+        }
+        staleLines.push('');
+        staleLines.push('> 💡 Stale = past 50% of effective retention. Review or access to keep; otherwise will become archive candidates.');
+        return {
+          content: [{ type: 'text' as const, text: staleLines.join('\n') }],
+        };
+      }
+
+      // ── action="report" (default): concise summary ──
       const summary = getRetentionSummary(docs);
       const candidates = getArchiveCandidates(docs);
       const ranked = rankByRelevance(docs);
 
-      // Format output
+      // Source breakdown
+      const srcCounts = new Map<string, number>();
+      for (const d of docs) {
+        const key = d.sourceDetail || '(undefined)';
+        srcCounts.set(key, (srcCounts.get(key) ?? 0) + 1);
+      }
+
       const lines: string[] = [
         `## Memory Retention Status`,
         ``,
@@ -1561,20 +1597,33 @@ export async function createMemorixServer(
         `| Immune | ${summary.immune} |`,
         `| **Total** | **${docs.length}** |`,
         ``,
+        `### Source Breakdown`,
+        `| Source | Count |`,
+        `|--------|-------|`,
       ];
+      for (const [src, count] of [...srcCounts.entries()].sort((a, b) => b[1] - a[1])) {
+        lines.push(`| ${src} | ${count} |`);
+      }
+      lines.push('');
 
       if (candidates.length > 0) {
         lines.push(`### Archive Candidates (${candidates.length})`);
-        lines.push(`| ID | Title | Age (days) | Access |`);
-        lines.push(`|----|-------|-----------|--------|`);
+        lines.push(`| ID | Title | Age | Retention | Why |`);
+        lines.push(`|----|-------|-----|-----------|-----|`);
         for (const c of candidates.slice(0, 10)) {
-          const ageDays = Math.round(
-            (Date.now() - new Date(c.createdAt).getTime()) / (1000 * 60 * 60 * 24),
-          );
-          lines.push(`| ${c.observationId} | ${c.title} | ${ageDays}d | ${c.accessCount ?? 0}× |`);
+          const exp = explainRetention(c);
+          lines.push(`| ${c.observationId} | ${c.title} | ${exp.ageDays}d | ${exp.effectiveRetentionDays}d | ${exp.summary} |`);
+        }
+        if (candidates.length > 10) {
+          lines.push(`| … | *(${candidates.length - 10} more)* | | | |`);
         }
         lines.push('');
         lines.push(`> 💡 Use \`memorix_retention\` with \`action: "archive"\` to move these to archive.`);
+        lines.push('');
+      }
+
+      if (summary.stale > 0) {
+        lines.push(`> 📋 ${summary.stale} stale observation(s) — use \`memorix_retention\` with \`action: "stale"\` for full details.`);
         lines.push('');
       }
 

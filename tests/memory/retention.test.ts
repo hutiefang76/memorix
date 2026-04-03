@@ -95,7 +95,8 @@ describe('Retention & Decay', () => {
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 365);
       const doc = makeDoc({
-        type: 'decision', // high importance → immune
+        type: 'decision',
+        valueCategory: 'core', // core valueCategory → immune
         createdAt: oldDate.toISOString(),
       });
       const score = calculateRelevance(doc);
@@ -105,9 +106,14 @@ describe('Retention & Decay', () => {
   });
 
   describe('isImmune', () => {
-    it('should protect high importance observations', () => {
-      expect(isImmune(makeDoc({ type: 'gotcha' }))).toBe(true);
-      expect(isImmune(makeDoc({ type: 'decision' }))).toBe(true);
+    it('should not protect high importance observations by type alone (P10 tightening)', () => {
+      expect(isImmune(makeDoc({ type: 'gotcha' }))).toBe(false);
+      expect(isImmune(makeDoc({ type: 'decision' }))).toBe(false);
+    });
+
+    it('should protect core valueCategory observations', () => {
+      expect(isImmune(makeDoc({ type: 'gotcha', valueCategory: 'core' }))).toBe(true);
+      expect(isImmune(makeDoc({ type: 'discovery', valueCategory: 'core' }))).toBe(true);
     });
 
     it('should protect frequently accessed observations', () => {
@@ -178,7 +184,7 @@ describe('Retention & Decay', () => {
     it('should keep immune observations active regardless of age', () => {
       const oldDate = new Date();
       oldDate.setDate(oldDate.getDate() - 400);
-      const doc = makeDoc({ type: 'decision', createdAt: oldDate.toISOString() });
+      const doc = makeDoc({ type: 'decision', valueCategory: 'core', createdAt: oldDate.toISOString() });
       expect(getRetentionZone(doc)).toBe('active');
     });
   });
@@ -206,7 +212,7 @@ describe('Retention & Decay', () => {
       const oldDate = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
       const docs = [
-        makeDoc({ observationId: 1, type: 'decision', createdAt: now.toISOString() }), // active + immune
+        makeDoc({ observationId: 1, type: 'decision', valueCategory: 'core', createdAt: now.toISOString() }), // active + immune (core)
         makeDoc({ observationId: 2, type: 'session-request', createdAt: oldDate.toISOString() }), // archive-candidate
         makeDoc({ observationId: 3, type: 'how-it-works', createdAt: now.toISOString() }), // active
       ];
