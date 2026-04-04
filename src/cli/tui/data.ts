@@ -132,6 +132,12 @@ export async function getHealthInfo(projectId?: string): Promise<HealthInfo> {
     const proj = detectProject(process.cwd());
     if (!proj) return defaults;
 
+    // Load .env BEFORE any process.env reads or provider initialization (#46)
+    try {
+      const { loadDotenv } = await import('../../config/dotenv-loader.js');
+      loadDotenv(proj.rootPath);
+    } catch { /* best-effort */ }
+
     const effectiveProjectId = projectId || proj.id;
     const dataDir = await getProjectDataDir(effectiveProjectId);
     const allObs = (await loadObservationsJson(dataDir)) as any[];

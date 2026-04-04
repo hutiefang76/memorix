@@ -72,6 +72,13 @@ export default defineCommand({
         lines.push(ok(`Git remote: ${result.project.gitRemote || '(none — local-only)'}`));
         lines.push(ok(`Data dir: ${dataDir}`));
         projectRoot = result.project.rootPath;
+
+        // Load .env BEFORE any process.env reads or provider initialization (#46)
+        try {
+          const { loadDotenv } = await import('../../config/dotenv-loader.js');
+          loadDotenv(projectRoot);
+        } catch { /* best-effort */ }
+
         report.project = { id: projectId, name: projectName, root: result.project.rootPath, dataDir };
       } else {
         const reason = result.failure?.reason ?? 'unknown';
