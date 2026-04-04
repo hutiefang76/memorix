@@ -8,6 +8,53 @@
 import { defineCommand } from 'citty';
 import * as p from '@clack/prompts';
 
+type IngestableCommit = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+};
+
+type IngestLogResult = {
+  stored: number;
+  dupSkipped: number;
+  errSkipped: number;
+};
+
+/**
+ * Shared dedup logic for batch git ingest.
+ * Exported so tests can exercise the production path rather than reimplementing it.
+ */
+export async function ingestCommitsWithDedup<T extends IngestableCommit>(
+  commits: T[],
+  existingHashes: Set<string>,
+  ingestOne: (commit: T) => Promise<void>,
+  log: (line: string) => void = console.log,
+): Promise<IngestLogResult> {
+  let stored = 0;
+  let dupSkipped = 0;
+  let errSkipped = 0;
+
+  for (const commit of commits) {
+    if (existingHashes.has(commit.hash)) {
+      dupSkipped++;
+      log(`  ⏭️ ${commit.shortHash} ${commit.subject} — already ingested`);
+      continue;
+    }
+    try {
+      await ingestOne(commit);
+      stored++;
+      existingHashes.add(commit.hash);
+      log(`  ✅ ${commit.shortHash} ${commit.subject}`);
+    } catch (err) {
+      errSkipped++;
+      const message = err instanceof Error ? err.message : String(err);
+      log(`  ⏭️ ${commit.shortHash} ${commit.subject} — error: ${message}`);
+    }
+  }
+
+  return { stored, dupSkipped, errSkipped };
+}
+
 export default defineCommand({
   meta: {
     name: 'log',
@@ -98,17 +145,10 @@ export default defineCommand({
       const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
       const existingHashes = new Set(existingObs.map(o => o.commitHash).filter(Boolean));
 
-      let stored = 0;
-      let dupSkipped = 0;
-      let errSkipped = 0;
-
-      for (const commit of commits) {
-        if (existingHashes.has(commit.hash)) {
-          dupSkipped++;
-          console.log(`  ⏭️ ${commit.shortHash} ${commit.subject} — already ingested`);
-          continue;
-        }
-        try {
+      const { stored, dupSkipped, errSkipped } = await ingestCommitsWithDedup(
+        commits,
+        existingHashes,
+        async (commit) => {
           const result = ingestCommit(commit);
           await storeObservation({
             entityName: result.entityName,
@@ -123,14 +163,9 @@ export default defineCommand({
             source: 'git',
             commitHash: commit.hash,
           });
-          stored++;
-          existingHashes.add(commit.hash);
-          console.log(`  ✅ ${commit.shortHash} ${commit.subject}`);
-        } catch {
-          errSkipped++;
-          console.log(`  ⏭️ ${commit.shortHash} (error)`);
-        }
-      }
+        },
+        console.log,
+      );
 
       const parts = [`Ingested ${stored}/${commits.length} commits`];
       if (dupSkipped) parts.push(`${dupSkipped} already stored`);

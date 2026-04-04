@@ -25,6 +25,7 @@ vi.mock('../../src/embedding/provider.js', () => ({
 import { storeObservation, initObservations } from '../../src/memory/observations.js';
 import { resetDb } from '../../src/store/orama-store.js';
 import { loadObservationsJson } from '../../src/store/persistence.js';
+import { ingestCommitsWithDedup } from '../../src/cli/commands/ingest-log.js';
 
 const PROJECT_ID = 'test/ingest-log-dedup';
 
@@ -55,29 +56,20 @@ async function storeGitCommit(hash: string, subject: string) {
   });
 }
 
-/**
- * Helper: replicate the dedup logic from the fixed ingest-log.ts
- */
 async function ingestWithDedup(
   commits: Array<{ hash: string; subject: string }>,
-): Promise<{ stored: number; dupSkipped: number }> {
+): Promise<{ stored: number; dupSkipped: number; errSkipped: number }> {
   const existingObs = await loadObservationsJson(testDir) as Array<{ commitHash?: string }>;
   const existingHashes = new Set(existingObs.map(o => o.commitHash).filter(Boolean));
-
-  let stored = 0;
-  let dupSkipped = 0;
-
-  for (const commit of commits) {
-    if (existingHashes.has(commit.hash)) {
-      dupSkipped++;
-      continue;
-    }
-    await storeGitCommit(commit.hash, commit.subject);
-    stored++;
-    existingHashes.add(commit.hash);
-  }
-
-  return { stored, dupSkipped };
+  return ingestCommitsWithDedup(
+    commits.map(commit => ({
+      ...commit,
+      shortHash: commit.hash.slice(0, 7),
+    })),
+    existingHashes,
+    async (commit) => storeGitCommit(commit.hash, commit.subject),
+    () => {},
+  );
 }
 
 describe('Issue #48: ingest-log commitHash dedup', () => {
@@ -92,6 +84,7 @@ describe('Issue #48: ingest-log commitHash dedup', () => {
 
     expect(result.stored).toBe(3);
     expect(result.dupSkipped).toBe(0);
+    expect(result.errSkipped).toBe(0);
 
     const obs = await loadObservationsJson(testDir) as Array<{ commitHash?: string }>;
     const gitObs = obs.filter(o => o.commitHash);
@@ -107,6 +100,7 @@ describe('Issue #48: ingest-log commitHash dedup', () => {
 
     expect(result.stored).toBe(0);
     expect(result.dupSkipped).toBe(3);
+    expect(result.errSkipped).toBe(0);
 
     // Total observations should still be 3, not 6
     const obs = await loadObservationsJson(testDir) as Array<{ commitHash?: string }>;
@@ -125,6 +119,7 @@ describe('Issue #48: ingest-log commitHash dedup', () => {
 
     expect(result.stored).toBe(1);
     expect(result.dupSkipped).toBe(2);
+    expect(result.errSkipped).toBe(0);
 
     const obs = await loadObservationsJson(testDir) as Array<{ commitHash?: string }>;
     const gitObs = obs.filter(o => o.commitHash);
@@ -142,6 +137,7 @@ describe('Issue #48: ingest-log commitHash dedup', () => {
 
     expect(result.stored).toBe(1);
     expect(result.dupSkipped).toBe(0);
+    expect(result.errSkipped).toBe(0);
   });
 
   it('within-batch dedup prevents storing same hash twice in one run', async () => {
@@ -154,9 +150,31 @@ describe('Issue #48: ingest-log commitHash dedup', () => {
 
     expect(result.stored).toBe(1);
     expect(result.dupSkipped).toBe(1);
+    expect(result.errSkipped).toBe(0);
 
     const obs = await loadObservationsJson(testDir) as Array<{ commitHash?: string }>;
     const matching = obs.filter(o => o.commitHash === 'fff6666fff6666fff6666fff6666fff6666fff666');
     expect(matching.length).toBe(1);
+  });
+
+  it('surfaces per-commit error messages from the production helper', async () => {
+    const messages: string[] = [];
+    const result = await ingestCommitsWithDedup(
+      [{
+        hash: '9999999999999999999999999999999999999999',
+        shortHash: '9999999',
+        subject: 'broken commit',
+      }],
+      new Set(),
+      async () => {
+        throw new Error('store failed');
+      },
+      (line) => messages.push(line),
+    );
+
+    expect(result.stored).toBe(0);
+    expect(result.dupSkipped).toBe(0);
+    expect(result.errSkipped).toBe(1);
+    expect(messages[0]).toContain('error: store failed');
   });
 });
