@@ -1032,6 +1032,7 @@ export async function createMemorixServer(
         parts.push(`⚠️ Not found: #${result.notFound.join(', #')}`);
       }
       parts.push('\nResolved memories are hidden from default search. Use status="all" to include them.');
+      parts.push('📊 Run `memorix_retention` with `action: "report"` to check remaining cleanup status.');
 
       return {
         content: [{ type: 'text' as const, text: parts.join('\n') }],
@@ -1201,10 +1202,15 @@ export async function createMemorixServer(
         );
       }
 
+      // Actionable IDs block (cap display to avoid very long outputs)
+      const auditIds = entries.map(e => e.id);
+      const auditPreview = auditIds.slice(0, 20);
+      const auditSummary = `[${auditPreview.join(', ')}]${auditIds.length > 20 ? ` … (${auditIds.length} total)` : ''}`;
       lines.push('');
-      lines.push(
-        '> To clean up: use `memorix_resolve` with `status: "archived"` on confirmed mis-attributed observation IDs.',
-      );
+      lines.push('### Suggested Actions');
+      lines.push(`Suggested IDs: ${auditSummary}`);
+      lines.push('- Archive confirmed mis-attributed observations: use `memorix_resolve` with the specific IDs above and `status: "archived"`.');
+      lines.push('- Review first with `memorix_detail` if unsure.');
 
       return {
         content: [{ type: 'text' as const, text: lines.join('\n') }],
@@ -1593,6 +1599,15 @@ export async function createMemorixServer(
         }
         staleLines.push('');
         staleLines.push('> 💡 Stale = past 50% of effective retention. Review or access to keep; otherwise will become archive candidates.');
+
+        // Actionable IDs block
+        const staleIds = staleDocs.map(d => d.observationId);
+        staleLines.push('');
+        staleLines.push('### Suggested Actions');
+        staleLines.push(`Suggested IDs: [${staleIds.join(', ')}]`);
+        staleLines.push(`- Archive stale observations: \`memorix_resolve\` with \`ids: [${staleIds.join(', ')}]\` and \`status: "archived"\``);
+        staleLines.push('- Or review individually with `memorix_detail` before deciding.');
+
         return {
           content: [{ type: 'text' as const, text: staleLines.join('\n') }],
         };
@@ -1641,8 +1656,10 @@ export async function createMemorixServer(
         if (candidates.length > 10) {
           lines.push(`| … | *(${candidates.length - 10} more)* | | | |`);
         }
+        const candidateIds = candidates.map(c => c.observationId);
         lines.push('');
-        lines.push(`> 💡 Use \`memorix_retention\` with \`action: "archive"\` to move these to archive.`);
+        lines.push(`Candidate IDs: [${candidateIds.slice(0, 20).join(', ')}]${candidateIds.length > 20 ? ` … (${candidateIds.length} total)` : ''}`);
+        lines.push(`> 💡 Use \`memorix_retention\` with \`action: "archive"\` to move all, or \`memorix_resolve\` with specific IDs.`);
         lines.push('');
       }
 
