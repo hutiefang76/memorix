@@ -25,6 +25,11 @@ export default defineCommand({
       p.log.error('Memorix requires a git repo to establish project identity. Run `git init` in this workspace first.');
       return;
     }
+
+    // Load .env BEFORE any process.env reads or provider initialization (#46)
+    const { loadDotenv } = await import('../../config/dotenv-loader.js');
+    loadDotenv(project.rootPath);
+
     const dataDir = await getProjectDataDir(project.id);
 
     // Count observations for the CURRENT project only (not global total)
@@ -88,13 +93,10 @@ export default defineCommand({
     try {
       const { loadYamlConfig } = await import('../../config/yaml-loader.js');
       const { loadFileConfig } = await import('../../config.js');
-      const { loadDotenv, getLoadedEnvFiles } = await import('../../config/dotenv-loader.js');
+      const { getLoadedEnvFiles } = await import('../../config/dotenv-loader.js');
       const os = await import('node:os');
       const yml = loadYamlConfig(project.rootPath);
       const legacy = loadFileConfig();
-
-      // Load dotenv for diagnostics
-      loadDotenv(project.rootPath);
 
       const diagLines: string[] = [];
 
