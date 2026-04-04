@@ -143,7 +143,9 @@ export default defineCommand({
 
       // Dedup: load existing commit hashes to skip already-ingested commits (#48)
       const existingObs = await loadObservationsJson(dataDir) as Array<{ commitHash?: string }>;
-      const existingHashes = new Set(existingObs.map(o => o.commitHash).filter(Boolean));
+      const existingHashes = new Set(
+        existingObs.map(o => o.commitHash).filter((hash): hash is string => typeof hash === 'string' && hash.length > 0),
+      );
 
       const { stored, dupSkipped, errSkipped } = await ingestCommitsWithDedup(
         commits,
