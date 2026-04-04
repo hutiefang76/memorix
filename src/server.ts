@@ -1202,12 +1202,14 @@ export async function createMemorixServer(
         );
       }
 
-      // Actionable IDs block
+      // Actionable IDs block (cap display to avoid very long outputs)
       const auditIds = entries.map(e => e.id);
+      const auditPreview = auditIds.slice(0, 20);
+      const auditSummary = `[${auditPreview.join(', ')}]${auditIds.length > 20 ? ` … (${auditIds.length} total)` : ''}`;
       lines.push('');
       lines.push('### Suggested Actions');
-      lines.push(`Suggested IDs: [${auditIds.join(', ')}]`);
-      lines.push(`- Archive confirmed mis-attributed observations: \`memorix_resolve\` with \`ids: [${auditIds.join(', ')}]\` and \`status: "archived"\``);
+      lines.push(`Suggested IDs: ${auditSummary}`);
+      lines.push('- Archive confirmed mis-attributed observations: use `memorix_resolve` with the specific IDs above and `status: "archived"`.');
       lines.push('- Review first with `memorix_detail` if unsure.');
 
       return {

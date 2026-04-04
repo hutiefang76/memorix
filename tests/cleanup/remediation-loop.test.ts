@@ -146,10 +146,12 @@ function buildAuditOutput(entries: MockAuditEntry[], projectId: string): string 
 
   // Actionable IDs block
   const auditIds = entries.map(e => e.id);
+  const auditPreview = auditIds.slice(0, 20);
+  const auditSummary = `[${auditPreview.join(', ')}]${auditIds.length > 20 ? ` … (${auditIds.length} total)` : ''}`;
   lines.push('');
   lines.push('### Suggested Actions');
-  lines.push(`Suggested IDs: [${auditIds.join(', ')}]`);
-  lines.push(`- Archive confirmed mis-attributed observations: \`memorix_resolve\` with \`ids: [${auditIds.join(', ')}]\` and \`status: "archived"\``);
+  lines.push(`Suggested IDs: ${auditSummary}`);
+  lines.push('- Archive confirmed mis-attributed observations: use `memorix_resolve` with the specific IDs above and `status: "archived"`.');
   lines.push('- Review first with `memorix_detail` if unsure.');
 
   return lines.join('\n');
@@ -248,6 +250,22 @@ describe('Phase 11: Cleanup Remediation Loop', () => {
       expect(output).toContain('memorix_resolve');
       expect(output).toContain('status: "archived"');
       expect(output).toContain('memorix_detail');
+    });
+
+    it('should cap Suggested IDs display for large audit result sets', () => {
+      const entries = Array.from({ length: 25 }, (_, i) => ({
+        id: i + 1,
+        entityName: `entity-${i + 1}`,
+        title: `Wrong obs ${i + 1}`,
+        source: 'agent',
+        likelyBelongsTo: 'other-project',
+        count: 3,
+        confidence: 'medium',
+      }));
+      const output = buildAuditOutput(entries, 'my-project');
+      expect(output).toContain('Suggested IDs: [1, 2, 3, 4, 5');
+      expect(output).toContain('… (25 total)');
+      expect(output).not.toContain('`ids: [1, 2, 3');
     });
 
     it('should not include actionable block when no suspicious entries', () => {
